@@ -66,10 +66,12 @@ func RunHost(ctx context.Context, targetPort int) error {
 	}
 	defer pc.Close()
 
-	dc, err := webrtcpkg.CreateDataChannel(pc)
+	dcRaw, err := webrtcpkg.CreateDataChannel(pc)
 	if err != nil {
 		return fmt.Errorf("建立 DataChannel 失敗: %w", err)
 	}
+
+	dc := webrtcpkg.NewDataChannel(dcRaw)
 
 	// DC open signal.
 	dcOpenCh := make(chan struct{})
@@ -105,21 +107,10 @@ func RunHost(ctx context.Context, targetPort int) error {
 	util.Logf("WebRTC DataChannel 已建立，WS 已關閉")
 	fmt.Println("✓ P2P 隧道已建立！正在轉發流量...")
 
-	// ── 5. Backpressure setup ──────────────────────────────────────────
-	sendReady := make(chan struct{}, 1)
-	dc.SetBufferedAmountLowThreshold(uint64(tunnel.LowWaterMark))
-	dc.OnBufferedAmountLow(func() {
-		select {
-		case sendReady <- struct{}{}:
-		default:
-		}
-	})
-
 	// ── 6. Dispatcher (host mode) ──────────────────────────────────────
 	dispatcher := tunnel.NewDispatcher()
 
-	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-		pkt, err := protocol.Decode(msg.Data)
+	dc.OnPacket(func(pkt *protocol.Packet, err error) {
 		if err != nil {
 			util.Logf("封包解碼失敗: %v", err)
 			return
@@ -131,7 +122,7 @@ func RunHost(ctx context.Context, targetPort int) error {
 				return // ignore CLOSE for unknown socketID
 			}
 			ch, _ = dispatcher.GetOrCreate(pkt.SocketID)
-			go tunnel.HostSocketHandler(dcCtx, pkt.SocketID, ch, dc, targetAddr, sendReady, dispatcher.Unregister)
+			go tunnel.HostSocketHandler(dcCtx, pkt.SocketID, ch, dc, targetAddr, dispatcher.Unregister)
 		}
 
 		select {

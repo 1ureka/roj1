@@ -72,7 +72,7 @@ func RunClient(ctx context.Context, wsURL string, localPort int) error {
 	}
 
 	// Get the DataChannel reference.
-	dc := <-dcCh
+	dc := webrtcpkg.NewDataChannel(<-dcCh)
 
 	dc.OnClose(func() {
 		util.Logf("DataChannel 已關閉")
@@ -82,21 +82,10 @@ func RunClient(ctx context.Context, wsURL string, localPort int) error {
 	util.Logf("WebRTC DataChannel 已建立，WS 已關閉")
 	fmt.Println("✓ P2P 隧道已建立！")
 
-	// ── 4. Backpressure setup ──────────────────────────────────────────
-	sendReady := make(chan struct{}, 1)
-	dc.SetBufferedAmountLowThreshold(uint64(tunnel.LowWaterMark))
-	dc.OnBufferedAmountLow(func() {
-		select {
-		case sendReady <- struct{}{}:
-		default:
-		}
-	})
-
 	// ── 5. Dispatcher (client mode) ────────────────────────────────────
 	dispatcher := tunnel.NewDispatcher()
 
-	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-		pkt, err := protocol.Decode(msg.Data)
+	dc.OnPacket(func(pkt *protocol.Packet, err error) {
 		if err != nil {
 			util.Logf("封包解碼失敗: %v", err)
 			return
@@ -105,7 +94,7 @@ func RunClient(ctx context.Context, wsURL string, localPort int) error {
 		ch, ok := dispatcher.Route(pkt.SocketID)
 		if !ok {
 			// On client side, handlers are created by the listener, not the dispatcher.
-			util.Logf("[%08x] 未知 socketID，丟棄封包", pkt.SocketID)
+			util.Logf("[%08x] 未知 socketID ，丟棄封包", pkt.SocketID)
 			return
 		}
 
@@ -118,7 +107,7 @@ func RunClient(ctx context.Context, wsURL string, localPort int) error {
 
 	// ── 6. Virtual service listener ────────────────────────────────────
 	go func() {
-		if err := tunnel.ListenAndServe(dcCtx, localPort, dc, dispatcher, sendReady); err != nil {
+		if err := tunnel.ListenAndServe(dcCtx, localPort, dc, dispatcher); err != nil {
 			util.Logf("虛擬服務錯誤: %v", err)
 			dcCancel()
 		}

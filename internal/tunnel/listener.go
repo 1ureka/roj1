@@ -6,7 +6,7 @@ import (
 	"net"
 
 	"github.com/1ureka/1ureka.net.p2p/internal/util"
-	"github.com/pion/webrtc/v4"
+	"github.com/1ureka/1ureka.net.p2p/internal/webrtc"
 )
 
 // ListenAndServe starts the client-side virtual TCP service on localPort.
@@ -17,7 +17,6 @@ func ListenAndServe(
 	localPort int,
 	dc *webrtc.DataChannel,
 	dispatcher *Dispatcher,
-	sendReady <-chan struct{},
 ) error {
 	addr := fmt.Sprintf("127.0.0.1:%d", localPort)
 	listener, err := net.Listen("tcp", addr)
@@ -47,6 +46,6 @@ func ListenAndServe(
 		socketID := util.SocketIDFromConn(conn)
 		util.Logf("[%08x] 新連線 from %s", socketID, conn.RemoteAddr())
 
-		go ClientSocketHandler(ctx, socketID, conn, dc, dispatcher, sendReady)
+		go ClientSocketHandler(ctx, socketID, conn, dc, dispatcher)
 	}
 }
