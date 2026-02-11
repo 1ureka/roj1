@@ -1,0 +1,14 @@
+# 編譯產出的執行檔 (Windows 為 .exe, Mac/Linux 通常沒有副檔名)
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/1ureka.net.p2p
+
+# 測試產生的暫存檔
+*.test
+*.out
+
+# 操作系統產生的垃圾
+[Dd]s.[Ss]tore
