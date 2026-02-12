@@ -14,7 +14,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/1ureka/1ureka.net.p2p/internal/app"
+	"github.com/1ureka/1ureka.net.p2p/internal/adapter"
+	"github.com/1ureka/1ureka.net.p2p/internal/signaling"
 )
 
 func main() {
@@ -56,10 +57,22 @@ func runHost(ctx context.Context, scanner *bufio.Scanner) {
 		os.Exit(1)
 	}
 
-	if err := app.RunHost(ctx, port); err != nil {
+	tr, err := signaling.EstablishAsHost(ctx)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "錯誤: %v\n", err)
 		os.Exit(1)
 	}
+	defer tr.Close()
+
+	fmt.Println("✓ P2P 隧道已建立！正在轉發流量...")
+
+	targetAddr := fmt.Sprintf("127.0.0.1:%d", port)
+	if err := adapter.RunAsHost(ctx, tr, targetAddr); err != nil {
+		fmt.Fprintf(os.Stderr, "錯誤: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("隧道已關閉")
 }
 
 func runClient(ctx context.Context, scanner *bufio.Scanner) {
@@ -79,8 +92,20 @@ func runClient(ctx context.Context, scanner *bufio.Scanner) {
 		os.Exit(1)
 	}
 
-	if err := app.RunClient(ctx, wsURL, port); err != nil {
+	tr, err := signaling.EstablishAsClient(ctx, wsURL)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "錯誤: %v\n", err)
 		os.Exit(1)
 	}
+	defer tr.Close()
+
+	fmt.Println("✓ P2P 隧道已建立！")
+	fmt.Printf("正在監聽 127.0.0.1:%d，流量將透過 P2P 隧道轉發至 Host\n", port)
+
+	if err := adapter.RunAsClient(ctx, tr, port); err != nil {
+		fmt.Fprintf(os.Stderr, "錯誤: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("隧道已關閉")
 }

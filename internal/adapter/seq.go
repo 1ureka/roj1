@@ -1,4 +1,4 @@
-package tunnel
+package adapter
 
 import "sync/atomic"
 
