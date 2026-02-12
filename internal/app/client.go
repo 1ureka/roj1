@@ -11,9 +11,9 @@ import (
 
 	"github.com/1ureka/1ureka.net.p2p/internal/protocol"
 	"github.com/1ureka/1ureka.net.p2p/internal/signaling"
+	"github.com/1ureka/1ureka.net.p2p/internal/transport"
 	"github.com/1ureka/1ureka.net.p2p/internal/tunnel"
 	"github.com/1ureka/1ureka.net.p2p/internal/util"
-	webrtcpkg "github.com/1ureka/1ureka.net.p2p/internal/webrtc"
 )
 
 // RunClient orchestrates the full client lifecycle:
@@ -32,52 +32,17 @@ func RunClient(ctx context.Context, wsURL string, localPort int) error {
 	defer wsConn.Close()
 	util.Logf("WS 已連線: %s", wsURL)
 
-	// ── 2. Create PeerConnection ───────────────────────────────────────
-	pc, err := webrtcpkg.NewPeerConnection()
+	// ── 2. Create Transport ───────────────────────────────────────────
+	tr, err := transport.NewTransport(ctx)
 	if err != nil {
-		return fmt.Errorf("建立 PeerConnection 失敗: %w", err)
+		return fmt.Errorf("建立 Transport 失敗: %w", err)
 	}
-	defer pc.Close()
-
-	// DC will be provided by the host via OnDataChannel.
-	dcCh := make(chan *webrtc.DataChannel, 1)
-	dcOpenCh := make(chan struct{})
-	var dcOpenOnce sync.Once
-
-	pc.OnDataChannel(func(d *webrtc.DataChannel) {
-		d.OnOpen(func() {
-			dcOpenOnce.Do(func() { close(dcOpenCh) })
-		})
-		select {
-		case dcCh <- d:
-		default:
-		}
-	})
-
-	// DC context — cancelled when DC closes or PC fails.
-	dcCtx, dcCancel := context.WithCancel(ctx)
-	defer dcCancel()
-
-	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		util.Logf("PeerConnection 狀態: %s", state.String())
-		switch state {
-		case webrtc.PeerConnectionStateFailed, webrtc.PeerConnectionStateClosed:
-			dcCancel()
-		}
-	})
+	defer tr.Close()
 
 	// ── 3. Signaling ───────────────────────────────────────────────────
-	if err := doClientSignaling(wsConn, pc, dcOpenCh); err != nil {
+	if err := doClientSignaling(wsConn, tr); err != nil {
 		return fmt.Errorf("signaling 失敗: %w", err)
 	}
-
-	// Get the DataChannel reference.
-	dc := webrtcpkg.NewDataChannel(<-dcCh)
-
-	dc.OnClose(func() {
-		util.Logf("DataChannel 已關閉")
-		dcCancel()
-	})
 
 	util.Logf("WebRTC DataChannel 已建立，WS 已關閉")
 	fmt.Println("✓ P2P 隧道已建立！")
@@ -85,7 +50,7 @@ func RunClient(ctx context.Context, wsURL string, localPort int) error {
 	// ── 5. Dispatcher (client mode) ────────────────────────────────────
 	dispatcher := tunnel.NewDispatcher()
 
-	dc.OnPacket(func(pkt *protocol.Packet, err error) {
+	tr.OnPacket(func(pkt *protocol.Packet, err error) {
 		if err != nil {
 			util.Logf("封包解碼失敗: %v", err)
 			return
@@ -107,16 +72,15 @@ func RunClient(ctx context.Context, wsURL string, localPort int) error {
 
 	// ── 6. Virtual service listener ────────────────────────────────────
 	go func() {
-		if err := tunnel.ListenAndServe(dcCtx, localPort, dc, dispatcher); err != nil {
+		if err := tunnel.ListenAndServe(ctx, localPort, tr, dispatcher); err != nil {
 			util.Logf("虛擬服務錯誤: %v", err)
-			dcCancel()
 		}
 	}()
 
 	fmt.Printf("正在監聽 127.0.0.1:%d，流量將透過 P2P 隧道轉發至 Host\n", localPort)
 
 	// ── 7. Block until shutdown ────────────────────────────────────────
-	<-dcCtx.Done()
+	<-tr.Done()
 	fmt.Println("隧道已關閉")
 	return nil
 }
@@ -124,7 +88,7 @@ func RunClient(ctx context.Context, wsURL string, localPort int) error {
 // doClientSignaling performs the SDP/ICE exchange on the client side.
 // It receives the offer, creates and sends an answer, exchanges ICE candidates,
 // and returns when the DataChannel opens.
-func doClientSignaling(wsConn *websocket.Conn, pc *webrtc.PeerConnection, dcOpenCh <-chan struct{}) error {
+func doClientSignaling(wsConn *websocket.Conn, tr *transport.Transport) error {
 	var wsMu sync.Mutex
 	wsSend := func(msg signaling.Message) {
 		wsMu.Lock()
@@ -135,7 +99,7 @@ func doClientSignaling(wsConn *websocket.Conn, pc *webrtc.PeerConnection, dcOpen
 	}
 
 	// Trickle ICE candidates.
-	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
+	tr.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if c == nil {
 			return
 		}
@@ -157,19 +121,19 @@ func doClientSignaling(wsConn *websocket.Conn, pc *webrtc.PeerConnection, dcOpen
 			}
 			switch msg.Type {
 			case signaling.MsgTypeOffer:
-				if err := pc.SetRemoteDescription(webrtc.SessionDescription{
+				if err := tr.SetRemoteDescription(webrtc.SessionDescription{
 					Type: webrtc.SDPTypeOffer,
 					SDP:  msg.SDP,
 				}); err != nil {
 					util.Logf("SetRemoteDescription 失敗: %v", err)
 					continue
 				}
-				answer, err := pc.CreateAnswer(nil)
+				answer, err := tr.CreateAnswer()
 				if err != nil {
 					util.Logf("CreateAnswer 失敗: %v", err)
 					continue
 				}
-				if err := pc.SetLocalDescription(answer); err != nil {
+				if err := tr.SetLocalDescription(answer); err != nil {
 					util.Logf("SetLocalDescription 失敗: %v", err)
 					continue
 				}
@@ -178,7 +142,7 @@ func doClientSignaling(wsConn *websocket.Conn, pc *webrtc.PeerConnection, dcOpen
 			case signaling.MsgTypeCandidate:
 				var init webrtc.ICECandidateInit
 				if err := json.Unmarshal([]byte(msg.Candidate), &init); err == nil {
-					if err := pc.AddICECandidate(init); err != nil {
+					if err := tr.AddICECandidate(init); err != nil {
 						util.Logf("AddICECandidate 失敗: %v", err)
 					}
 				}
@@ -188,12 +152,12 @@ func doClientSignaling(wsConn *websocket.Conn, pc *webrtc.PeerConnection, dcOpen
 
 	// Wait for DataChannel to open, then close WS.
 	select {
-	case <-dcOpenCh:
+	case <-tr.Ready():
 		wsConn.Close()
 		return nil
 	case err := <-errCh:
 		select {
-		case <-dcOpenCh:
+		case <-tr.Ready():
 			return nil
 		default:
 			return fmt.Errorf("WS 讀取錯誤: %w", err)

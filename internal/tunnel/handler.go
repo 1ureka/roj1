@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/1ureka/1ureka.net.p2p/internal/protocol"
+	"github.com/1ureka/1ureka.net.p2p/internal/transport"
 	"github.com/1ureka/1ureka.net.p2p/internal/util"
-	"github.com/1ureka/1ureka.net.p2p/internal/webrtc"
 )
 
 // Tuning constants.
@@ -28,7 +28,7 @@ func HostSocketHandler(
 	parentCtx context.Context,
 	id uint32,
 	inbox <-chan *protocol.Packet,
-	dc *webrtc.DataChannel,
+	tr *transport.Transport,
 	targetAddr string,
 	unregister func(uint32),
 ) {
@@ -64,9 +64,7 @@ func HostSocketHandler(
 					conn, err := net.Dial("tcp", targetAddr)
 					if err != nil {
 						util.Logf("[%08x] TCP dial failed: %v", id, err)
-						if err := dc.SendClose(ctx, id, seq.Next()); err != nil {
-							util.Logf("[%08x] failed to send CLOSE: %v", id, err)
-						}
+						tr.SendClose(id, seq.Next())
 						return
 					}
 					tcpConn = conn
@@ -76,16 +74,14 @@ func HostSocketHandler(
 					for _, p := range pending {
 						if _, err := tcpConn.Write(p.Payload); err != nil {
 							util.Logf("[%08x] TCP write error (flush): %v", id, err)
-							if err := dc.SendClose(ctx, id, seq.Next()); err != nil {
-								util.Logf("[%08x] failed to send CLOSE: %v", id, err)
-							}
+							tr.SendClose(id, seq.Next())
 							return
 						}
 					}
 					pending = nil
 
 					// Start the independent TCP→DataChannel goroutine (Method A — draft5).
-					go tcpToDataChannel(ctx, cancel, tcpConn, dc, id, seq)
+					go tcpToDataChannel(ctx, cancel, tcpConn, tr, id, seq)
 
 				case protocol.TypeData:
 					if tcpConn == nil {
@@ -94,9 +90,7 @@ func HostSocketHandler(
 					} else {
 						if _, err := tcpConn.Write(d.Payload); err != nil {
 							util.Logf("[%08x] TCP write error: %v", id, err)
-							if err := dc.SendClose(ctx, id, seq.Next()); err != nil {
-								util.Logf("[%08x] failed to send CLOSE: %v", id, err)
-							}
+							tr.SendClose(id, seq.Next())
 							return
 						}
 					}
@@ -124,7 +118,7 @@ func ClientSocketHandler(
 	parentCtx context.Context,
 	id uint32,
 	tcpConn net.Conn,
-	dc *webrtc.DataChannel,
+	tr *transport.Transport,
 	dispatcher *Dispatcher,
 ) {
 	ctx, cancel := context.WithCancel(parentCtx)
@@ -137,13 +131,10 @@ func ClientSocketHandler(
 	seq := NewSeqGen()
 
 	// Immediately send CONNECT — do not wait for host acknowledgement (by design).
-	if err := dc.SendConnect(ctx, id, seq.Next()); err != nil {
-		util.Logf("[%08x] failed to send CONNECT: %v", id, err)
-		return
-	}
+	tr.SendConnect(id, seq.Next())
 
 	// Start the independent TCP→DataChannel goroutine.
-	go tcpToDataChannel(ctx, cancel, tcpConn, dc, id, seq)
+	go tcpToDataChannel(ctx, cancel, tcpConn, tr, id, seq)
 
 	// Main loop: DataChannel → TCP direction.
 	for {
@@ -158,9 +149,7 @@ func ClientSocketHandler(
 				case protocol.TypeData:
 					if _, err := tcpConn.Write(d.Payload); err != nil {
 						util.Logf("[%08x] TCP write error: %v", id, err)
-						if err := dc.SendClose(ctx, id, seq.Next()); err != nil {
-							util.Logf("[%08x] failed to send CLOSE: %v", id, err)
-						}
+						tr.SendClose(id, seq.Next())
 						return
 					}
 				case protocol.TypeClose:
@@ -190,7 +179,7 @@ func tcpToDataChannel(
 	ctx context.Context,
 	cancel context.CancelFunc,
 	tcpConn net.Conn,
-	dc *webrtc.DataChannel,
+	tr *transport.Transport,
 	socketID uint32,
 	seq *SeqGen,
 ) {
@@ -205,9 +194,7 @@ func tcpToDataChannel(
 		if n > 0 {
 			payload := make([]byte, n)
 			copy(payload, buf[:n])
-			if err := dc.SendData(ctx, socketID, seq.Next(), payload); err != nil {
-				util.Logf("[%08x] failed to send DATA: %v", socketID, err)
-			}
+			tr.SendData(socketID, seq.Next(), payload)
 		}
 
 		if err != nil {
@@ -222,9 +209,7 @@ func tcpToDataChannel(
 			}
 			// Real TCP error — send CLOSE and exit.
 			util.Logf("[%08x] TCP read error: %v", socketID, err)
-			if err := dc.SendClose(ctx, socketID, seq.Next()); err != nil {
-				util.Logf("[%08x] failed to send CLOSE: %v", socketID, err)
-			}
+			tr.SendClose(socketID, seq.Next())
 			return
 		}
 	}

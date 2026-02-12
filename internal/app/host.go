@@ -14,9 +14,9 @@ import (
 
 	"github.com/1ureka/1ureka.net.p2p/internal/protocol"
 	"github.com/1ureka/1ureka.net.p2p/internal/signaling"
+	"github.com/1ureka/1ureka.net.p2p/internal/transport"
 	"github.com/1ureka/1ureka.net.p2p/internal/tunnel"
 	"github.com/1ureka/1ureka.net.p2p/internal/util"
-	webrtcpkg "github.com/1ureka/1ureka.net.p2p/internal/webrtc"
 )
 
 // RunHost orchestrates the full host lifecycle:
@@ -59,46 +59,15 @@ func RunHost(ctx context.Context, targetPort int) error {
 	defer wsConn.Close()
 	util.Logf("Client 已連線")
 
-	// ── 3. Create PeerConnection & DataChannel ─────────────────────────
-	pc, err := webrtcpkg.NewPeerConnection()
+	// ── 3. Create Transport ───────────────────────────────────────────
+	tr, err := transport.NewTransport(ctx)
 	if err != nil {
-		return fmt.Errorf("建立 PeerConnection 失敗: %w", err)
+		return fmt.Errorf("建立 Transport 失敗: %w", err)
 	}
-	defer pc.Close()
-
-	dcRaw, err := webrtcpkg.CreateDataChannel(pc)
-	if err != nil {
-		return fmt.Errorf("建立 DataChannel 失敗: %w", err)
-	}
-
-	dc := webrtcpkg.NewDataChannel(dcRaw)
-
-	// DC open signal.
-	dcOpenCh := make(chan struct{})
-	var dcOpenOnce sync.Once
-	dc.OnOpen(func() {
-		dcOpenOnce.Do(func() { close(dcOpenCh) })
-	})
-
-	// DC context — cancelled when DC closes or PC fails.
-	dcCtx, dcCancel := context.WithCancel(ctx)
-	defer dcCancel()
-
-	dc.OnClose(func() {
-		util.Logf("DataChannel 已關閉")
-		dcCancel()
-	})
-
-	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		util.Logf("PeerConnection 狀態: %s", state.String())
-		switch state {
-		case webrtc.PeerConnectionStateFailed, webrtc.PeerConnectionStateClosed:
-			dcCancel()
-		}
-	})
+	defer tr.Close()
 
 	// ── 4. Signaling ───────────────────────────────────────────────────
-	if err := doHostSignaling(wsConn, pc, dcOpenCh); err != nil {
+	if err := doHostSignaling(wsConn, tr); err != nil {
 		return fmt.Errorf("signaling 失敗: %w", err)
 	}
 
@@ -110,7 +79,7 @@ func RunHost(ctx context.Context, targetPort int) error {
 	// ── 6. Dispatcher (host mode) ──────────────────────────────────────
 	dispatcher := tunnel.NewDispatcher()
 
-	dc.OnPacket(func(pkt *protocol.Packet, err error) {
+	tr.OnPacket(func(pkt *protocol.Packet, err error) {
 		if err != nil {
 			util.Logf("封包解碼失敗: %v", err)
 			return
@@ -122,7 +91,7 @@ func RunHost(ctx context.Context, targetPort int) error {
 				return // ignore CLOSE for unknown socketID
 			}
 			ch, _ = dispatcher.GetOrCreate(pkt.SocketID)
-			go tunnel.HostSocketHandler(dcCtx, pkt.SocketID, ch, dc, targetAddr, dispatcher.Unregister)
+			go tunnel.HostSocketHandler(ctx, pkt.SocketID, ch, tr, targetAddr, dispatcher.Unregister)
 		}
 
 		select {
@@ -133,7 +102,7 @@ func RunHost(ctx context.Context, targetPort int) error {
 	})
 
 	// ── 7. Block until shutdown ────────────────────────────────────────
-	<-dcCtx.Done()
+	<-tr.Done()
 	fmt.Println("隧道已關閉")
 	return nil
 }
@@ -141,7 +110,7 @@ func RunHost(ctx context.Context, targetPort int) error {
 // doHostSignaling performs the SDP/ICE exchange on the host side.
 // It sends an offer, receives the answer and ICE candidates via WebSocket,
 // and returns when the DataChannel opens.
-func doHostSignaling(wsConn *websocket.Conn, pc *webrtc.PeerConnection, dcOpenCh <-chan struct{}) error {
+func doHostSignaling(wsConn *websocket.Conn, tr *transport.Transport) error {
 	var wsMu sync.Mutex
 	wsSend := func(msg signaling.Message) {
 		wsMu.Lock()
@@ -152,7 +121,7 @@ func doHostSignaling(wsConn *websocket.Conn, pc *webrtc.PeerConnection, dcOpenCh
 	}
 
 	// Trickle ICE candidates.
-	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
+	tr.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if c == nil {
 			return
 		}
@@ -164,11 +133,11 @@ func doHostSignaling(wsConn *websocket.Conn, pc *webrtc.PeerConnection, dcOpenCh
 	})
 
 	// Create and send offer.
-	offer, err := pc.CreateOffer(nil)
+	offer, err := tr.CreateOffer()
 	if err != nil {
 		return fmt.Errorf("CreateOffer: %w", err)
 	}
-	if err := pc.SetLocalDescription(offer); err != nil {
+	if err := tr.SetLocalDescription(offer); err != nil {
 		return fmt.Errorf("SetLocalDescription: %w", err)
 	}
 	wsSend(signaling.Message{Type: signaling.MsgTypeOffer, SDP: offer.SDP})
@@ -184,7 +153,7 @@ func doHostSignaling(wsConn *websocket.Conn, pc *webrtc.PeerConnection, dcOpenCh
 			}
 			switch msg.Type {
 			case signaling.MsgTypeAnswer:
-				if err := pc.SetRemoteDescription(webrtc.SessionDescription{
+				if err := tr.SetRemoteDescription(webrtc.SessionDescription{
 					Type: webrtc.SDPTypeAnswer,
 					SDP:  msg.SDP,
 				}); err != nil {
@@ -193,7 +162,7 @@ func doHostSignaling(wsConn *websocket.Conn, pc *webrtc.PeerConnection, dcOpenCh
 			case signaling.MsgTypeCandidate:
 				var init webrtc.ICECandidateInit
 				if err := json.Unmarshal([]byte(msg.Candidate), &init); err == nil {
-					if err := pc.AddICECandidate(init); err != nil {
+					if err := tr.AddICECandidate(init); err != nil {
 						util.Logf("AddICECandidate 失敗: %v", err)
 					}
 				}
@@ -203,13 +172,13 @@ func doHostSignaling(wsConn *websocket.Conn, pc *webrtc.PeerConnection, dcOpenCh
 
 	// Wait for DataChannel to open, then close WS.
 	select {
-	case <-dcOpenCh:
+	case <-tr.Ready():
 		wsConn.Close()
 		return nil
 	case err := <-errCh:
-		// If WS closed because dcOpenCh already fired, that's fine.
+		// If WS closed because tr.Ready() already fired, that's fine.
 		select {
-		case <-dcOpenCh:
+		case <-tr.Ready():
 			return nil
 		default:
 			return fmt.Errorf("WS 讀取錯誤: %w", err)
