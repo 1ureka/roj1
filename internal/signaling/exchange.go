@@ -22,7 +22,12 @@ func hostExchange(wsConn *websocket.Conn, tr *transport.Transport) error {
 		wsMu.Lock()
 		defer wsMu.Unlock()
 		if err := wsConn.WriteJSON(msg); err != nil {
-			util.Logf("WS 發送失敗: %v", err)
+			// If WS closed because tr.Ready() already fired, that's fine.
+			select {
+			case <-tr.Ready():
+			default:
+				util.Logf("WS 發送失敗: %v", err)
+			}
 		}
 	}
 
@@ -103,7 +108,12 @@ func clientExchange(wsConn *websocket.Conn, tr *transport.Transport) error {
 		wsMu.Lock()
 		defer wsMu.Unlock()
 		if err := wsConn.WriteJSON(msg); err != nil {
-			util.Logf("WS 發送失敗: %v", err)
+			// If WS closed because tr.Ready() already fired, that's fine.
+			select {
+			case <-tr.Ready():
+			default:
+				util.Logf("WS 發送失敗: %v", err)
+			}
 		}
 	}
 
