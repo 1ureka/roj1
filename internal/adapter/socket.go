@@ -3,7 +3,7 @@ package adapter
 import (
 	"context"
 	"net"
-	"time"
+	"sync"
 
 	"github.com/1ureka/1ureka.net.p2p/internal/protocol"
 	"github.com/1ureka/1ureka.net.p2p/internal/transport"
@@ -12,9 +12,8 @@ import (
 
 // Tuning constants.
 const (
-	maxPayloadSize  = 16 * 1024              // 16 KB per DATA packet payload
-	readTimeout     = 100 * time.Millisecond // TCP read deadline for interruptibility
-	inboxBufferSize = 64                     // per-socketID inbox channel capacity
+	maxPayloadSize  = 16 * 1024 // 16 KB per DATA packet payload
+	inboxBufferSize = 64        // per-socketID inbox channel capacity
 )
 
 // Socket holds the complete lifecycle state for one socketID.
@@ -24,8 +23,9 @@ type Socket struct {
 	id uint32
 
 	// Lifecycle
-	ctx    context.Context
-	cancel context.CancelFunc
+	ctx       context.Context
+	cancel    context.CancelFunc
+	closeOnce sync.Once
 
 	// Communication
 	inbox chan *protocol.Packet // fed by the adapter's dispatch loop
@@ -70,8 +70,7 @@ func newSocketWithConn(parentCtx context.Context, id uint32, tr *transport.Trans
 // forwarding. All packet types are handled in one for-range, so no data
 // is lost when Reassembler delivers CONNECT and DATA in the same batch.
 func (s *Socket) runAsHost(targetAddr string) {
-	defer s.cancel()
-	defer s.closeTCP()
+	defer s.cleanup()
 
 	connected := false
 
@@ -87,7 +86,6 @@ func (s *Socket) runAsHost(targetAddr string) {
 					conn, err := net.Dial("tcp", targetAddr)
 					if err != nil {
 						util.Logf("[%08x] TCP dial failed: %v", s.id, err)
-						s.tr.SendClose(s.id, s.seq.Next())
 						return
 					}
 					s.tcpConn = conn
@@ -101,7 +99,6 @@ func (s *Socket) runAsHost(targetAddr string) {
 					}
 					if _, err := s.tcpConn.Write(d.Payload); err != nil {
 						util.Logf("[%08x] TCP write error: %v", s.id, err)
-						s.tr.SendClose(s.id, s.seq.Next())
 						return
 					}
 
@@ -125,8 +122,7 @@ func (s *Socket) runAsHost(targetAddr string) {
 // Already holds a TCP connection from accept; sends CONNECT immediately,
 // then forwards data bidirectionally until CLOSE or context cancellation.
 func (s *Socket) runAsClient() {
-	defer s.cancel()
-	defer s.closeTCP()
+	defer s.cleanup()
 
 	s.tr.SendConnect(s.id, s.seq.Next())
 	go s.pumpTCPToDataChannel()
@@ -139,7 +135,6 @@ func (s *Socket) runAsClient() {
 				case protocol.TypeData:
 					if _, err := s.tcpConn.Write(d.Payload); err != nil {
 						util.Logf("[%08x] TCP write error: %v", s.id, err)
-						s.tr.SendClose(s.id, s.seq.Next())
 						return
 					}
 				case protocol.TypeClose:
@@ -159,13 +154,12 @@ func (s *Socket) runAsClient() {
 // ---------------------------------------------------------------------------
 
 // pumpTCPToDataChannel reads from the TCP connection and sends DATA packets.
-// On exit it cancels the shared context so the bridge loop also terminates.
+// It uses a blocking Read; cleanup() closes the TCP connection to unblock it.
 func (s *Socket) pumpTCPToDataChannel() {
-	defer s.cancel()
+	defer s.cleanup()
 
 	buf := make([]byte, maxPayloadSize)
 	for {
-		s.tcpConn.SetReadDeadline(time.Now().Add(readTimeout))
 		n, err := s.tcpConn.Read(buf)
 
 		if n > 0 {
@@ -175,25 +169,27 @@ func (s *Socket) pumpTCPToDataChannel() {
 		}
 
 		if err != nil {
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				select {
-				case <-s.ctx.Done():
-					return
-				default:
-					continue
-				}
+			select {
+			case <-s.ctx.Done():
+				// Already shutting down — no need to log.
+			default:
+				util.Logf("[%08x] TCP read error: %v", s.id, err)
 			}
-			// Real TCP error — send CLOSE and exit.
-			util.Logf("[%08x] TCP read error: %v", s.id, err)
-			s.tr.SendClose(s.id, s.seq.Next())
 			return
 		}
 	}
 }
 
-// closeTCP closes the TCP connection if one was established.
-func (s *Socket) closeTCP() {
-	if s.tcpConn != nil {
-		s.tcpConn.Close()
-	}
+// cleanup consolidates all shutdown actions behind sync.Once so that
+// regardless of which goroutine exits first, resources are released
+// exactly once and the peer is notified with a single CLOSE packet.
+func (s *Socket) cleanup() {
+	s.closeOnce.Do(func() {
+		s.cancel()
+		if s.tcpConn != nil {
+			s.tcpConn.Close()
+		}
+		s.tr.SendClose(s.id, s.seq.Next())
+		util.Logf("[%08x] Socket cleanup complete", s.id)
+	})
 }
