@@ -17,7 +17,7 @@ import (
 
 // EstablishAsHost executes the full host-side signaling flow:
 //  1. Start a WS server on a random port
-//  2. Print Port info
+//  2. Print port info
 //  3. Wait for the client to connect
 //  4. Create a Transport
 //  5. Perform SDP/ICE exchange
@@ -33,6 +33,7 @@ func EstablishAsHost(ctx context.Context) (*transport.Transport, error) {
 	}
 	defer srv.close()
 
+	// 2. Print port info.
 	fmt.Println()
 	fmt.Println("╔══════════════════════════════════════════╗")
 	fmt.Println("║        WebSocket Signaling Server        ║")
@@ -45,7 +46,7 @@ func EstablishAsHost(ctx context.Context) (*transport.Transport, error) {
 	fmt.Println()
 	fmt.Println("等待 Client 連線...")
 
-	// 2. Wait for client WS connection.
+	// 3. Wait for client WS connection.
 	wsConn, err := srv.waitForClient(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("等待 Client 失敗: %w", err)
@@ -53,12 +54,13 @@ func EstablishAsHost(ctx context.Context) (*transport.Transport, error) {
 	defer wsConn.Close()
 	util.Logf("Client 已連線")
 
-	// 3. Create Transport.
+	// 4. Create Transport.
 	tr, err := transport.NewTransport(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("建立 Transport 失敗: %w", err)
 	}
 
+	// 5. Perform SDP/ICE exchange.
 	// 組裝 sender / receiver
 	s := &sender{tr: tr, conn: wsConn}
 	r := &receiver{tr: tr, conn: wsConn, sender: s}
@@ -123,6 +125,7 @@ func EstablishAsClient(ctx context.Context, wsURL string) (*transport.Transport,
 		return nil, fmt.Errorf("建立 Transport 失敗: %w", err)
 	}
 
+	// 3. Perform SDP/ICE exchange.
 	// 組裝 sender / receiver
 	s := &sender{tr: tr, conn: wsConn}
 	r := &receiver{tr: tr, conn: wsConn, sender: s}
@@ -139,7 +142,7 @@ func EstablishAsClient(ctx context.Context, wsURL string) (*transport.Transport,
 	// 啟動 receiver 迴圈（背景 goroutine）
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- r.watch()
+		errCh <- r.watch() // 該 routine 會在 defer wsConn.Close() 後因為 ReadJSON 失敗而釋放，不須 ctx
 	}()
 
 	// 等待結果

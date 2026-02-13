@@ -14,7 +14,7 @@ const (
 	sendBufferSize = 64         // outgoing packet channel capacity
 )
 
-// sender is a goroutine-based packet writer that serialises all writes to a
+// sender is a goroutine-based packet writer that serializes all writes to a
 // single DataChannel, adding open-gate and backpressure control.
 type sender struct {
 	inbox       chan *protocol.Packet
