@@ -22,7 +22,7 @@ func (r *receiver) watch() error {
 	for {
 		var msg message
 		if err := r.conn.ReadJSON(&msg); err != nil {
-			return fmt.Errorf("讀取 WS 訊息失敗: %w", err)
+			return fmt.Errorf("failed to read WS message: %w", err)
 		}
 
 		switch msg.Type {
@@ -49,7 +49,7 @@ func (r *receiver) watch() error {
 		case msgTypeCandidate:
 			var init webrtc.ICECandidateInit
 			if err := json.Unmarshal([]byte(msg.Candidate), &init); err != nil {
-				return fmt.Errorf("解析 ICE candidate 失敗: %w", err)
+				return fmt.Errorf("failed to parse ICE candidate: %w", err)
 			}
 			if err := r.tr.AddICECandidate(init); err != nil {
 				return err

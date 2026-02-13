@@ -49,10 +49,10 @@ func EstablishAsHost(ctx context.Context) (*transport.Transport, error) {
 	// 3. Wait for client WS connection.
 	wsConn, err := srv.waitForClient(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("等待 Client 失敗: %w", err)
+		return nil, fmt.Errorf("failed to wait for client: %w", err)
 	}
 	defer wsConn.Close()
-	util.Logf("Client 已連線")
+	util.Logf("client connected")
 
 	// 4. Create Transport.
 	tr, err := transport.NewTransport(ctx)
@@ -61,40 +61,40 @@ func EstablishAsHost(ctx context.Context) (*transport.Transport, error) {
 	}
 
 	// 5. Perform SDP/ICE exchange.
-	// 組裝 sender / receiver
+	// Assemble sender and receiver.
 	s := &sender{tr: tr, conn: wsConn}
 	r := &receiver{tr: tr, conn: wsConn, sender: s}
 
-	// 註冊 ICE candidate 回調 → 透過 sender 發送
+	// Register ICE candidate callback — forward via sender.
 	tr.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if c != nil {
 			data, _ := json.Marshal(c.ToJSON())
-			// 錯誤在此被忽略（見 §5.1），不是阿，report5 之後要刪除ㄝ，寫下來好嗎?
+			// Error intentionally ignored: sendCandidate is best-effort.
 			s.sendCandidate(string(data))
 		}
 	})
 
-	// 啟動 receiver 迴圈（背景 goroutine）
+	// Start receiver loop (background goroutine).
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- r.watch() // 該 routine 會在 defer wsConn.Close() 後因為 ReadJSON 失敗而釋放，不須 ctx
+		errCh <- r.watch() // Exits when wsConn is closed (deferred above); no ctx needed.
 	}()
 
-	// Host 先發送 Offer
+	// Host sends the Offer first.
 	if err := s.sendOffer(); err != nil {
 		tr.Close()
-		return nil, fmt.Errorf("發送 Offer 失敗: %w", err)
+		return nil, fmt.Errorf("failed to send Offer: %w", err)
 	}
 
-	// 等待結果
+	// Wait for result.
 	select {
 	case <-tr.Ready():
-		util.Logf("WebRTC DataChannel 已建立， WS 即將關閉")
+		util.Logf("WebRTC DataChannel established, closing WS")
 		return tr, nil
 
 	case err := <-errCh:
 		tr.Close()
-		return nil, fmt.Errorf("signaling 失敗: %w", err)
+		return nil, fmt.Errorf("signaling failed: %w", err)
 
 	case <-ctx.Done():
 		tr.Close()
@@ -111,49 +111,49 @@ func EstablishAsHost(ctx context.Context) (*transport.Transport, error) {
 //  6. Return the ready Transport
 func EstablishAsClient(ctx context.Context, wsURL string) (*transport.Transport, error) {
 	// 1. Connect to WS server.
-	fmt.Println("正在連線到 Host...")
+	fmt.Println("Connecting to Host...")
 	wsConn, err := connect(ctx, wsURL)
 	if err != nil {
 		return nil, err
 	}
 	defer wsConn.Close()
-	util.Logf("WS 已連線: %s", wsURL)
+	util.Logf("WS connected: %s", wsURL)
 
 	// 2. Create Transport.
 	tr, err := transport.NewTransport(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("建立 Transport 失敗: %w", err)
+		return nil, fmt.Errorf("failed to create Transport: %w", err)
 	}
 
 	// 3. Perform SDP/ICE exchange.
-	// 組裝 sender / receiver
+	// Assemble sender and receiver.
 	s := &sender{tr: tr, conn: wsConn}
 	r := &receiver{tr: tr, conn: wsConn, sender: s}
 
-	// 註冊 ICE candidate 回調 → 透過 sender 發送
+	// Register ICE candidate callback — forward via sender.
 	tr.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if c != nil {
 			data, _ := json.Marshal(c.ToJSON())
-			// 錯誤在此被忽略（見 §5.1），不是阿，report5 之後要刪除ㄝ，寫下來好嗎?
+			// Error intentionally ignored: sendCandidate is best-effort.
 			s.sendCandidate(string(data))
 		}
 	})
 
-	// 啟動 receiver 迴圈（背景 goroutine）
+	// Start receiver loop (background goroutine).
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- r.watch() // 該 routine 會在 defer wsConn.Close() 後因為 ReadJSON 失敗而釋放，不須 ctx
+		errCh <- r.watch() // Exits when wsConn is closed (deferred above); no ctx needed.
 	}()
 
-	// 等待結果
+	// Wait for result.
 	select {
 	case <-tr.Ready():
-		util.Logf("WebRTC DataChannel 已建立， WS 即將關閉")
+		util.Logf("WebRTC DataChannel established, closing WS")
 		return tr, nil
 
 	case err := <-errCh:
 		tr.Close()
-		return nil, fmt.Errorf("signaling 失敗: %w", err)
+		return nil, fmt.Errorf("signaling failed: %w", err)
 
 	case <-ctx.Done():
 		tr.Close()

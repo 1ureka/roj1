@@ -15,9 +15,7 @@ type Reassembler struct {
 
 // NewReassembler creates a reassembler expecting sequence numbers starting at 1.
 func NewReassembler() *Reassembler {
-	return &Reassembler{
-		expectedSeq: 1,
-	}
+	return &Reassembler{expectedSeq: 1}
 }
 
 // Feed processes an incoming packet and returns all packets that can now be

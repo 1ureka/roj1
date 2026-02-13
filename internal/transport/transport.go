@@ -190,7 +190,7 @@ func (t *Transport) OnPacket(fn func(*protocol.Packet)) {
 		pkt, err := protocol.Decode(msg.Data)
 
 		if err != nil {
-			util.Logf("封包解碼失敗: %v", err)
+			util.Logf("failed to decode packet: %v", err)
 			return
 		}
 

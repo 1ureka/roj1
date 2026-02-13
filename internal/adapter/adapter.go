@@ -62,7 +62,7 @@ func (a *adapter) deliver(pkt *protocol.Packet) bool {
 	select {
 	case s.inbox <- pkt:
 	default:
-		util.Logf("[%08x] inbox 已滿，丟棄封包", pkt.SocketID)
+		util.Logf("[%08x] inbox full, dropping packet", pkt.SocketID)
 	}
 	return true
 }
@@ -112,9 +112,8 @@ func RunAsClient(ctx context.Context, tr *transport.Transport, localPort int) er
 			return
 		}
 
-		// TODO: 這行解釋為何只需在 DATA 封包上警告未知 socketID
 		if pkt.Type == protocol.TypeData {
-			util.Logf("[%08x] 未知 socketID，丟棄 DATA 封包", pkt.SocketID)
+			util.Logf("[%08x] unknown socketID, dropping DATA packet", pkt.SocketID)
 		}
 	})
 
@@ -130,7 +129,7 @@ func RunAsClient(ctx context.Context, tr *transport.Transport, localPort int) er
 		listener.Close()
 	}()
 
-	util.Logf("虛擬服務已啟動，監聽 %s", addr)
+	util.Logf("virtual service started, listening on %s", addr)
 
 	// Accept loop in a separate goroutine so we can also wait on tr.Done().
 	go func() {
@@ -147,7 +146,7 @@ func RunAsClient(ctx context.Context, tr *transport.Transport, localPort int) er
 			}
 
 			socketID := util.SocketIDFromConn(conn)
-			util.Logf("[%08x] 新連線 from %s", socketID, conn.RemoteAddr())
+			util.Logf("[%08x] new connection from %s", socketID, conn.RemoteAddr())
 
 			s := newSocketWithConn(ctx, socketID, tr, conn)
 			a.register(s)
