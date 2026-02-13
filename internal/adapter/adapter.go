@@ -78,25 +78,21 @@ func (a *adapter) deliver(pkt *protocol.Packet) bool {
 func RunAsHost(ctx context.Context, tr *transport.Transport, targetAddr string) error {
 	a := newAdapter(ctx, tr)
 
-	tr.OnPacket(func(pkt *protocol.Packet, err error) {
-		if err != nil {
-			util.Logf("封包解碼失敗: %v", err)
+	tr.OnPacket(func(pkt *protocol.Packet) {
+		if a.deliver(pkt) {
 			return
 		}
 
-		if !a.deliver(pkt) {
-			// Unknown socketID — create a new socket (unless it's a stale CLOSE).
-			if pkt.Type == protocol.TypeClose {
-				return
-			}
-
-			s := newSocket(ctx, pkt.SocketID, tr)
-			a.register(s)
-			go s.runAsHost(targetAddr)
-
-			// Deliver the first packet that triggered creation.
-			a.deliver(pkt)
+		// Unknown socketID — create a new socket (unless it's a stale CLOSE).
+		if pkt.Type == protocol.TypeClose {
+			return
 		}
+
+		s := newSocket(ctx, pkt.SocketID, tr)
+		a.register(s)
+		go s.runAsHost(targetAddr)
+
+		a.deliver(pkt) // Deliver the first packet that triggered creation.
 	})
 
 	<-tr.Done()
@@ -111,17 +107,14 @@ func RunAsClient(ctx context.Context, tr *transport.Transport, localPort int) er
 	a := newAdapter(ctx, tr)
 
 	// Wire up DataChannel → Socket dispatch.
-	tr.OnPacket(func(pkt *protocol.Packet, err error) {
-		if err != nil {
-			util.Logf("封包解碼失敗: %v", err)
+	tr.OnPacket(func(pkt *protocol.Packet) {
+		if a.deliver(pkt) {
 			return
 		}
 
-		if !a.deliver(pkt) {
-			// Unknown socketID — log (unless it's a stale CLOSE).
-			if pkt.Type != protocol.TypeClose {
-				util.Logf("[%08x] 未知 socketID，丟棄封包", pkt.SocketID)
-			}
+		// TODO: 這行解釋為何只需在 DATA 封包上警告未知 socketID
+		if pkt.Type == protocol.TypeData {
+			util.Logf("[%08x] 未知 socketID，丟棄 DATA 封包", pkt.SocketID)
 		}
 	})
 

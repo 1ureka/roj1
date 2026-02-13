@@ -184,10 +184,16 @@ func (t *Transport) SendData(socketID, seqNum uint32, payload []byte) {
 }
 
 // OnPacket registers a callback invoked for every inbound DataChannel message.
-// The callback receives the decoded packet and any decoding error.
-func (t *Transport) OnPacket(fn func(*protocol.Packet, error)) {
+// The callback receives the decoded packet.
+func (t *Transport) OnPacket(fn func(*protocol.Packet)) {
 	t.dc.OnMessage(func(msg webrtc.DataChannelMessage) {
 		pkt, err := protocol.Decode(msg.Data)
-		fn(pkt, err)
+
+		if err != nil {
+			util.Logf("封包解碼失敗: %v", err)
+			return
+		}
+
+		fn(pkt)
 	})
 }
