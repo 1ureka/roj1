@@ -118,7 +118,10 @@ func RunAsClient(ctx context.Context, tr *transport.Transport, localPort int) er
 		}
 
 		if !a.deliver(pkt) {
-			util.Logf("[%08x] 未知 socketID，丟棄封包", pkt.SocketID)
+			// Unknown socketID — log (unless it's a stale CLOSE).
+			if pkt.Type != protocol.TypeClose {
+				util.Logf("[%08x] 未知 socketID，丟棄封包", pkt.SocketID)
+			}
 		}
 	})
 
