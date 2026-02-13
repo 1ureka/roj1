@@ -5,7 +5,10 @@ package signaling
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+
+	"github.com/pion/webrtc/v4"
 
 	"github.com/1ureka/1ureka.net.p2p/internal/transport"
 	"github.com/1ureka/1ureka.net.p2p/internal/util"
@@ -58,17 +61,45 @@ func EstablishAsHost(ctx context.Context) (*transport.Transport, error) {
 		return nil, fmt.Errorf("建立 Transport 失敗: %w", err)
 	}
 
-	// 4. SDP/ICE exchange.
-	if err := hostExchange(wsConn, tr); err != nil {
+	// 組裝 sender / receiver
+	s := &sender{tr: tr, conn: wsConn}
+	r := &receiver{tr: tr, conn: wsConn, sender: s}
+
+	// 註冊 ICE candidate 回調 → 透過 sender 發送
+	tr.OnICECandidate(func(c *webrtc.ICECandidate) {
+		if c != nil {
+			data, _ := json.Marshal(c.ToJSON())
+			// 錯誤在此被忽略（見 §5.1），不是阿，report5 之後要刪除ㄝ，寫下來好嗎?
+			s.sendCandidate(string(data))
+		}
+	})
+
+	// 啟動 receiver 迴圈（背景 goroutine）
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- r.watch() // 該 routine 會在 defer wsConn.Close() 後因為 ReadJSON 失敗而釋放，不須 ctx
+	}()
+
+	// Host 先發送 Offer
+	if err := s.sendOffer(); err != nil {
 		tr.Close()
-		return nil, fmt.Errorf("signaling 失敗: %w", err)
+		return nil, fmt.Errorf("發送 Offer 失敗: %w", err)
 	}
 
-	// 5. Release listener resources early.
-	srv.close()
-	util.Logf("WebRTC DataChannel 已建立，WS 已關閉")
+	// 等待結果
+	select {
+	case <-tr.Ready():
+		util.Logf("WebRTC DataChannel 已建立， WS 即將關閉")
+		return tr, nil
 
-	return tr, nil
+	case err := <-errCh:
+		tr.Close()
+		return nil, fmt.Errorf("signaling 失敗: %w", err)
+
+	case <-ctx.Done():
+		tr.Close()
+		return nil, ctx.Err()
+	}
 }
 
 // EstablishAsClient executes the full client-side signaling flow:
@@ -94,12 +125,37 @@ func EstablishAsClient(ctx context.Context, wsURL string) (*transport.Transport,
 		return nil, fmt.Errorf("建立 Transport 失敗: %w", err)
 	}
 
-	// 3. SDP/ICE exchange.
-	if err := clientExchange(wsConn, tr); err != nil {
+	// 組裝 sender / receiver
+	s := &sender{tr: tr, conn: wsConn}
+	r := &receiver{tr: tr, conn: wsConn, sender: s}
+
+	// 註冊 ICE candidate 回調 → 透過 sender 發送
+	tr.OnICECandidate(func(c *webrtc.ICECandidate) {
+		if c != nil {
+			data, _ := json.Marshal(c.ToJSON())
+			// 錯誤在此被忽略（見 §5.1），不是阿，report5 之後要刪除ㄝ，寫下來好嗎?
+			s.sendCandidate(string(data))
+		}
+	})
+
+	// 啟動 receiver 迴圈（背景 goroutine）
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- r.watch()
+	}()
+
+	// 等待結果
+	select {
+	case <-tr.Ready():
+		util.Logf("WebRTC DataChannel 已建立， WS 即將關閉")
+		return tr, nil
+
+	case err := <-errCh:
 		tr.Close()
 		return nil, fmt.Errorf("signaling 失敗: %w", err)
-	}
 
-	util.Logf("WebRTC DataChannel 已建立，WS 已關閉")
-	return tr, nil
+	case <-ctx.Done():
+		tr.Close()
+		return nil, ctx.Err()
+	}
 }
