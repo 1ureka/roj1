@@ -2,9 +2,7 @@ package signaling
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
-	"math/big"
 	"net"
 	"net/http"
 
@@ -17,17 +15,8 @@ var upgrader = websocket.Upgrader{
 
 // server is the host-side WebSocket server used during signaling (private).
 type server struct {
-	pin      string
 	listener net.Listener
 	connCh   chan *websocket.Conn
-}
-
-// newServer creates a new signaling server with the given PIN for authentication.
-func newServer(pin string) *server {
-	return &server{
-		pin:    pin,
-		connCh: make(chan *websocket.Conn, 1),
-	}
 }
 
 // start begins listening on a random port. Returns the assigned port number.
@@ -50,12 +39,6 @@ func (s *server) start() (int, error) {
 }
 
 func (s *server) handleWS(w http.ResponseWriter, r *http.Request) {
-	pin := r.URL.Query().Get("pin")
-	if pin != s.pin {
-		http.Error(w, "Invalid PIN", http.StatusUnauthorized)
-		return
-	}
-
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
@@ -96,14 +79,4 @@ func connect(ctx context.Context, url string) (*websocket.Conn, error) {
 		return nil, fmt.Errorf("failed to connect to WS server: %w", err)
 	}
 	return conn, nil
-}
-
-// generatePIN returns a random numeric PIN of the specified length.
-func generatePIN(length int) string {
-	digits := make([]byte, length)
-	for i := range digits {
-		n, _ := rand.Int(rand.Reader, big.NewInt(10))
-		digits[i] = byte('0') + byte(n.Int64())
-	}
-	return string(digits)
 }

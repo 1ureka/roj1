@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/gorilla/websocket"
 	"github.com/pion/webrtc/v4"
 
 	"github.com/1ureka/1ureka.net.p2p/internal/transport"
@@ -15,19 +16,17 @@ import (
 )
 
 // EstablishAsHost executes the full host-side signaling flow:
-//  1. Generate a random PIN
-//  2. Start a WS server on a random port
-//  3. Print Port / PIN info
-//  4. Wait for the client to connect
-//  5. Create a Transport
-//  6. Perform SDP/ICE exchange
-//  7. Wait for the DataChannel to be ready
-//  8. Close the WS server and connection (resource cleanup)
-//  9. Return the ready Transport
+//  1. Start a WS server on a random port
+//  2. Print Port info
+//  3. Wait for the client to connect
+//  4. Create a Transport
+//  5. Perform SDP/ICE exchange
+//  6. Wait for the DataChannel to be ready
+//  7. Close the WS server and connection (resource cleanup)
+//  8. Return the ready Transport
 func EstablishAsHost(ctx context.Context) (*transport.Transport, error) {
-	// 1. Generate PIN & start WS server.
-	pin := generatePIN(4)
-	srv := newServer(pin)
+	// 1. Start WS server.
+	srv := &server{connCh: make(chan *websocket.Conn, 1)}
 	wsPort, err := srv.start()
 	if err != nil {
 		return nil, err
@@ -39,7 +38,6 @@ func EstablishAsHost(ctx context.Context) (*transport.Transport, error) {
 	fmt.Println("║        WebSocket Signaling Server        ║")
 	fmt.Println("╠══════════════════════════════════════════╣")
 	fmt.Printf("║  Port : %-32d ║\n", wsPort)
-	fmt.Printf("║  PIN  : %-32s ║\n", pin)
 	fmt.Println("╠══════════════════════════════════════════╣")
 	fmt.Println("║  提示：使用 VS Code Port Forwarding      ║")
 	fmt.Println("║  將此 port 轉發到公網                    ║")

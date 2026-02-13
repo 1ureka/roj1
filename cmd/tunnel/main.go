@@ -76,7 +76,7 @@ func runHost(ctx context.Context, scanner *bufio.Scanner) {
 }
 
 func runClient(ctx context.Context, scanner *bufio.Scanner) {
-	fmt.Print("請輸入 WebSocket URL (例如 wss://***.asse.devtunnels.ms/ws?pin=1234): ")
+	fmt.Print("請輸入 WebSocket URL (例如 wss://***.asse.devtunnels.ms/ws): ")
 	scanner.Scan()
 	wsURL := strings.TrimSpace(scanner.Text())
 	if wsURL == "" {
