@@ -194,6 +194,7 @@ func (t *Transport) OnPacket(fn func(*protocol.Packet)) {
 			return
 		}
 
+		util.Stats.AddRecv(len(msg.Data))
 		fn(pkt)
 	})
 }

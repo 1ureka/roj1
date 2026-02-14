@@ -38,12 +38,14 @@ func (a *adapter) register(s *Socket) {
 	a.mu.Lock()
 	a.routes[s.id] = s
 	a.mu.Unlock()
+	util.Stats.AddConn()
 
 	go func() {
 		<-s.ctx.Done()
 		a.mu.Lock()
 		delete(a.routes, s.id)
 		a.mu.Unlock()
+		util.Stats.RemoveConn()
 	}()
 }
 

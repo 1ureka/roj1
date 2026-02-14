@@ -70,6 +70,7 @@ func (s *sender) loop(ctx context.Context, dc *webrtc.DataChannel, openSignal <-
 				return
 			}
 
+			util.Stats.AddSent(len(data))
 		case <-ctx.Done():
 			return
 		}

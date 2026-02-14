@@ -34,7 +34,7 @@ func main() {
 		util.EnableDebug()
 	}
 
-	util.LogInfo("Welcome to 1ureka.net.p2p CLI!")
+	pterm.Info.Println("Welcome to 1ureka.net.p2p CLI!")
 	pterm.Println()
 
 	role, _ := pterm.DefaultInteractiveSelect.
@@ -56,6 +56,7 @@ func main() {
 		}
 		defer tr.Close()
 
+		util.StartStatsReporter(ctx)
 		util.LogSuccess("P2P tunnel established — forwarding traffic to 127.0.0.1:%d", port)
 
 		if err := adapter.RunAsHost(ctx, tr, fmt.Sprintf("127.0.0.1:%d", port)); err != nil {
@@ -73,6 +74,7 @@ func main() {
 		}
 		defer tr.Close()
 
+		util.StartStatsReporter(ctx)
 		util.LogSuccess("P2P tunnel established — forwarding traffic to Host")
 
 		if err := adapter.RunAsClient(ctx, tr, fmt.Sprintf("127.0.0.1:%d", port)); err != nil {
