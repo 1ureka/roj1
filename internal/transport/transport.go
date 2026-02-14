@@ -69,13 +69,13 @@ func NewTransport(ctx context.Context) (*Transport, error) {
 
 	// DC close → cancel transport context.
 	dc.OnClose(func() {
-		util.Logf("DataChannel closed")
+		util.LogInfo("DataChannel closed")
 		tCancel()
 	})
 
 	// Record PC state (informational only).
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		util.Logf("PeerConnection state: %s", state.String())
+		util.LogInfo("PeerConnection state changed → %s", state)
 		t.mu.Lock()
 		t.pcState = state
 		t.mu.Unlock()
@@ -190,7 +190,7 @@ func (t *Transport) OnPacket(fn func(*protocol.Packet)) {
 		pkt, err := protocol.Decode(msg.Data)
 
 		if err != nil {
-			util.Logf("failed to decode packet: %v", err)
+			util.LogError("failed to decode packet: %v", err)
 			return
 		}
 

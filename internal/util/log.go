@@ -1,15 +1,36 @@
 package util
 
-import (
-	"log"
-	"os"
-)
+import "github.com/pterm/pterm"
 
-// Logger is the shared logger instance. Output goes to stderr so that
-// interactive prompts on stdout are not interleaved with log messages.
-var Logger = log.New(os.Stderr, "", log.LstdFlags)
+func init() {
+	pterm.DefaultLogger.ShowTime = true
+	pterm.DefaultLogger.TimeFormat = "02 Jan 2006 15:04:05"
+}
 
-// Logf writes a formatted log message.
-func Logf(format string, args ...interface{}) {
-	Logger.Printf(format, args...)
+// Leveled logging functions backed by pterm prefixed printers.
+// All output goes to stderr by default (pterm's default).
+
+func LogDebug(format string, args ...interface{}) {
+	pterm.Debug.Printfln(format, args...)
+}
+
+func LogInfo(format string, args ...interface{}) {
+	pterm.Info.Printfln(format, args...)
+}
+
+func LogSuccess(format string, args ...interface{}) {
+	pterm.Success.Printfln(format, args...)
+}
+
+func LogWarning(format string, args ...interface{}) {
+	pterm.Warning.Printfln(format, args...)
+}
+
+func LogError(format string, args ...interface{}) {
+	pterm.Error.Printfln(format, args...)
+}
+
+// EnableDebug configures the logger to show debug messages.
+func EnableDebug() {
+	pterm.DefaultLogger.Level = pterm.LogLevelDebug
 }

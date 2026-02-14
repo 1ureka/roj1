@@ -2,6 +2,8 @@ package adapter
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net"
 	"sync"
 
@@ -85,12 +87,12 @@ func (s *Socket) runAsHost(targetAddr string) {
 					}
 					conn, err := net.Dial("tcp", targetAddr)
 					if err != nil {
-						util.Logf("[%08x] TCP dial failed: %v", s.id, err)
+						util.LogWarning("[%08x] TCP dial failed: %v", s.id, err)
 						return
 					}
 					s.tcpConn = conn
 					connected = true
-					util.Logf("[%08x] TCP connected to %s", s.id, targetAddr)
+					util.LogDebug("[%08x] TCP connected to %s", s.id, targetAddr)
 					go s.pumpTCPToDataChannel()
 
 				case protocol.TypeData:
@@ -98,12 +100,12 @@ func (s *Socket) runAsHost(targetAddr string) {
 						continue
 					}
 					if _, err := s.tcpConn.Write(d.Payload); err != nil {
-						util.Logf("[%08x] TCP write error: %v", s.id, err)
+						util.LogWarning("[%08x] TCP write error: %v", s.id, err)
 						return
 					}
 
 				case protocol.TypeClose:
-					util.Logf("[%08x] received CLOSE", s.id)
+					util.LogDebug("[%08x] received CLOSE", s.id)
 					return
 				}
 			}
@@ -134,11 +136,11 @@ func (s *Socket) runAsClient() {
 				switch d.Type {
 				case protocol.TypeData:
 					if _, err := s.tcpConn.Write(d.Payload); err != nil {
-						util.Logf("[%08x] TCP write error: %v", s.id, err)
+						util.LogWarning("[%08x] TCP write error: %v", s.id, err)
 						return
 					}
 				case protocol.TypeClose:
-					util.Logf("[%08x] received CLOSE", s.id)
+					util.LogDebug("[%08x] received CLOSE", s.id)
 					return
 				}
 			}
@@ -168,14 +170,22 @@ func (s *Socket) pumpTCPToDataChannel() {
 			s.tr.SendData(s.id, s.seq.Next(), payload)
 		}
 
-		if err != nil {
+		if err == nil {
+			continue
+		}
+
+		switch {
+		case errors.Is(err, io.EOF):
+			return // No need to log EOF — it's a normal shutdown signal.
+
+		default:
 			select {
 			case <-s.ctx.Done():
-				// Already shutting down — no need to log.
+				return // Already shutting down — no need to log.
 			default:
-				util.Logf("[%08x] TCP read error: %v", s.id, err)
+				util.LogWarning("[%08x] TCP read error: %v", s.id, err)
+				return
 			}
-			return
 		}
 	}
 }
@@ -190,6 +200,6 @@ func (s *Socket) cleanup() {
 			s.tcpConn.Close()
 		}
 		s.tr.SendClose(s.id, s.seq.Next())
-		util.Logf("[%08x] Socket cleanup complete", s.id)
+		util.LogDebug("[%08x] Socket cleanup complete", s.id)
 	})
 }

@@ -5,7 +5,6 @@ package adapter
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"sync"
 
@@ -62,7 +61,7 @@ func (a *adapter) deliver(pkt *protocol.Packet) bool {
 	select {
 	case s.inbox <- pkt:
 	default:
-		util.Logf("[%08x] inbox full, dropping packet", pkt.SocketID)
+		util.LogWarning("[%08x] inbox full, dropping packet", pkt.SocketID)
 	}
 	return true
 }
@@ -103,7 +102,7 @@ func RunAsHost(ctx context.Context, tr *transport.Transport, targetAddr string) 
 // incoming TCP connections; each accepted connection becomes a Socket that
 // sends CONNECT and bridges data through the DataChannel.
 // Blocks until the transport is done.
-func RunAsClient(ctx context.Context, tr *transport.Transport, localPort int) error {
+func RunAsClient(ctx context.Context, tr *transport.Transport, localAddr string) error {
 	a := newAdapter(ctx, tr)
 
 	// Wire up DataChannel → Socket dispatch.
@@ -113,15 +112,14 @@ func RunAsClient(ctx context.Context, tr *transport.Transport, localPort int) er
 		}
 
 		if pkt.Type == protocol.TypeData {
-			util.Logf("[%08x] unknown socketID, dropping DATA packet", pkt.SocketID)
+			util.LogWarning("[%08x] unknown socketID, dropping DATA packet", pkt.SocketID)
 		}
 	})
 
 	// Start TCP listener.
-	addr := fmt.Sprintf("127.0.0.1:%d", localPort)
-	listener, err := net.Listen("tcp", addr)
+	listener, err := net.Listen("tcp", localAddr)
 	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", addr, err)
+		return err
 	}
 
 	go func() {
@@ -129,7 +127,7 @@ func RunAsClient(ctx context.Context, tr *transport.Transport, localPort int) er
 		listener.Close()
 	}()
 
-	util.Logf("virtual service started, listening on %s", addr)
+	util.LogSuccess("virtual service started, listening on %s", localAddr)
 
 	// Accept loop in a separate goroutine so we can also wait on tr.Done().
 	go func() {
@@ -140,13 +138,13 @@ func RunAsClient(ctx context.Context, tr *transport.Transport, localPort int) er
 				case <-ctx.Done():
 					return
 				default:
-					util.Logf("accept error: %v", err)
+					util.LogError("accept error: %v", err)
 					return
 				}
 			}
 
 			socketID := util.SocketIDFromConn(conn)
-			util.Logf("[%08x] new connection from %s", socketID, conn.RemoteAddr())
+			util.LogDebug("[%08x] new connection from %s", socketID, conn.RemoteAddr())
 
 			s := newSocketWithConn(ctx, socketID, tr, conn)
 			a.register(s)

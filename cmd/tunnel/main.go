@@ -6,16 +6,20 @@
 package main
 
 import (
-	"bufio"
 	"context"
+	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
 	"strings"
 
+	"github.com/pterm/pterm"
+
 	"github.com/1ureka/1ureka.net.p2p/internal/adapter"
 	"github.com/1ureka/1ureka.net.p2p/internal/signaling"
+	"github.com/1ureka/1ureka.net.p2p/internal/util"
 )
 
 func main() {
@@ -23,89 +27,99 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	scanner := bufio.NewScanner(os.Stdin)
+	debugMode := flag.Bool("debug", false, "Enable debug logging")
+	flag.Parse()
 
-	fmt.Println("╔══════════════════════════════════════╗")
-	fmt.Println("║       P2P TCP Tunnel (WebRTC)        ║")
-	fmt.Println("╚══════════════════════════════════════╝")
-	fmt.Println()
-	fmt.Println("請選擇角色：")
-	fmt.Println("  1) Host  （提供服務的一方）")
-	fmt.Println("  2) Client（存取服務的一方）")
-	fmt.Print("\n請輸入選擇 (1/2): ")
+	if *debugMode {
+		util.EnableDebug()
+	}
 
-	scanner.Scan()
-	choice := strings.TrimSpace(scanner.Text())
+	util.LogInfo("Welcome to 1ureka.net.p2p CLI!")
+	pterm.Println()
 
-	switch choice {
-	case "1":
-		runHost(ctx, scanner)
-	case "2":
-		runClient(ctx, scanner)
-	default:
-		fmt.Println("無效選擇，請輸入 1 或 2")
-		os.Exit(1)
+	role, _ := pterm.DefaultInteractiveSelect.
+		WithOptions([]string{"Host  — Expose a local service", "Client — Connect to a remote host"}).
+		WithDefaultText("Select your role").
+		Show()
+
+	pterm.Println()
+
+	// ---- Run the appropriate tunnel logic based on the selected role ------------------------------
+
+	if strings.HasPrefix(role, "Host") {
+		port := askPort("Target port to forward (1 ~ 65535)")
+
+		tr, err := signaling.EstablishAsHost(ctx)
+		if err != nil {
+			util.LogError("Failed to establish tunnel: %v", err)
+			os.Exit(1)
+		}
+		defer tr.Close()
+
+		util.LogSuccess("P2P tunnel established — forwarding traffic to 127.0.0.1:%d", port)
+
+		if err := adapter.RunAsHost(ctx, tr, fmt.Sprintf("127.0.0.1:%d", port)); err != nil {
+			util.LogError("Tunnel error: %v", err)
+			os.Exit(1)
+		}
+	} else {
+		wsURL := askURL()
+		port := askPort("Local port for virtual service (1 ~ 65535)")
+
+		tr, err := signaling.EstablishAsClient(ctx, wsURL)
+		if err != nil {
+			util.LogError("Failed to establish tunnel: %v", err)
+			os.Exit(1)
+		}
+		defer tr.Close()
+
+		util.LogSuccess("P2P tunnel established — forwarding traffic to Host")
+
+		if err := adapter.RunAsClient(ctx, tr, fmt.Sprintf("127.0.0.1:%d", port)); err != nil {
+			util.LogError("Tunnel error: %v", err)
+			os.Exit(1)
+		}
+	}
+
+	util.LogInfo("Tunnel closed")
+}
+
+// ----------- Helper Functions ------------------------------------------------------
+
+// askPort prompts the user for a port number until a valid one is entered.
+func askPort(prompt string) int {
+	for {
+		raw, _ := pterm.DefaultInteractiveTextInput.
+			WithDefaultText(prompt).
+			Show()
+
+		port, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err == nil && port >= 1 && port <= 65535 {
+			pterm.Println()
+			return port
+		}
+
+		util.LogWarning("Invalid port number: must be 1 ~ 65535")
+		pterm.Println()
 	}
 }
 
-func runHost(ctx context.Context, scanner *bufio.Scanner) {
-	fmt.Print("請輸入要轉發的目標 port: ")
-	scanner.Scan()
-	port, err := strconv.Atoi(strings.TrimSpace(scanner.Text()))
-	if err != nil || port < 1 || port > 65535 {
-		fmt.Println("無效的 port 號碼")
-		os.Exit(1)
+// askURL prompts the user for a WebSocket URL until a non-empty one is entered.
+func askURL() string {
+	for {
+		raw, _ := pterm.DefaultInteractiveTextInput.
+			WithDefaultText("WebSocket URL (e.g. wss://***.asse.devtunnels.ms/ws)").
+			Show()
+
+		url, err := url.Parse(strings.TrimSpace(raw))
+		if err == nil && (url.Scheme == "ws" || url.Scheme == "wss") {
+			if url.Path == "/ws" {
+				pterm.Println()
+				return url.String()
+			}
+		}
+
+		pterm.Println()
+		util.LogWarning("Invalid URL: must start with ws:// or wss:// and cannot be empty")
 	}
-
-	tr, err := signaling.EstablishAsHost(ctx)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "錯誤: %v\n", err)
-		os.Exit(1)
-	}
-	defer tr.Close()
-
-	fmt.Println("✓ P2P 隧道已建立！正在轉發流量...")
-
-	targetAddr := fmt.Sprintf("127.0.0.1:%d", port)
-	if err := adapter.RunAsHost(ctx, tr, targetAddr); err != nil {
-		fmt.Fprintf(os.Stderr, "錯誤: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Println("隧道已關閉")
-}
-
-func runClient(ctx context.Context, scanner *bufio.Scanner) {
-	fmt.Print("請輸入 WebSocket URL (例如 wss://***.asse.devtunnels.ms/ws): ")
-	scanner.Scan()
-	wsURL := strings.TrimSpace(scanner.Text())
-	if wsURL == "" {
-		fmt.Println("URL 不可為空")
-		os.Exit(1)
-	}
-
-	fmt.Print("請輸入本地監聽 port: ")
-	scanner.Scan()
-	port, err := strconv.Atoi(strings.TrimSpace(scanner.Text()))
-	if err != nil || port < 1 || port > 65535 {
-		fmt.Println("無效的 port 號碼")
-		os.Exit(1)
-	}
-
-	tr, err := signaling.EstablishAsClient(ctx, wsURL)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "錯誤: %v\n", err)
-		os.Exit(1)
-	}
-	defer tr.Close()
-
-	fmt.Println("✓ P2P 隧道已建立！")
-	fmt.Printf("正在監聽 127.0.0.1:%d，流量將透過 P2P 隧道轉發至 Host\n", port)
-
-	if err := adapter.RunAsClient(ctx, tr, port); err != nil {
-		fmt.Fprintf(os.Stderr, "錯誤: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Println("隧道已關閉")
 }

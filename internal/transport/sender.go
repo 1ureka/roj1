@@ -66,7 +66,7 @@ func (s *sender) loop(ctx context.Context, dc *webrtc.DataChannel, openSignal <-
 
 			data := protocol.Encode(pkt)
 			if err := dc.Send(data); err != nil {
-				util.Logf("DataChannel send error: %v", err)
+				util.LogError("DataChannel send error: %v", err)
 				return
 			}
 
