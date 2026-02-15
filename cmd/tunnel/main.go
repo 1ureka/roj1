@@ -51,7 +51,7 @@ func main() {
 
 		tr, err := signaling.EstablishAsHost(ctx)
 		if err != nil {
-			util.LogError("Failed to establish tunnel: %v", err)
+			util.LogError("failed to establish tunnel: %v", err)
 			os.Exit(1)
 		}
 		defer tr.Close()
@@ -60,7 +60,7 @@ func main() {
 		util.LogSuccess("P2P tunnel established — forwarding traffic to 127.0.0.1:%d", port)
 
 		if err := adapter.RunAsHost(ctx, tr, fmt.Sprintf("127.0.0.1:%d", port)); err != nil {
-			util.LogError("Tunnel error: %v", err)
+			util.LogError("failed to handle tunnel connection: %v", err)
 			os.Exit(1)
 		}
 	} else {
@@ -69,7 +69,7 @@ func main() {
 
 		tr, err := signaling.EstablishAsClient(ctx, wsURL)
 		if err != nil {
-			util.LogError("Failed to establish tunnel: %v", err)
+			util.LogError("failed to establish tunnel: %v", err)
 			os.Exit(1)
 		}
 		defer tr.Close()
@@ -78,12 +78,12 @@ func main() {
 		util.LogSuccess("P2P tunnel established — forwarding traffic to Host")
 
 		if err := adapter.RunAsClient(ctx, tr, fmt.Sprintf("127.0.0.1:%d", port)); err != nil {
-			util.LogError("Tunnel error: %v", err)
+			util.LogError("failed to handle tunnel connection: %v", err)
 			os.Exit(1)
 		}
 	}
 
-	util.LogInfo("Tunnel closed")
+	util.LogInfo("successfully closed tunnel connection")
 }
 
 // ----------- Helper Functions ------------------------------------------------------
@@ -101,12 +101,12 @@ func askPort(prompt string) int {
 			return port
 		}
 
-		util.LogWarning("Invalid port number: must be 1 ~ 65535")
+		util.LogWarning("invalid port number: must be 1 ~ 65535")
 		pterm.Println()
 	}
 }
 
-// askURL prompts the user for a WebSocket URL until a non-empty one is entered.
+// askURL prompts the user for a valid WebSocket URL (ws/wss scheme, /ws path) until one is entered.
 func askURL() string {
 	for {
 		raw, _ := pterm.DefaultInteractiveTextInput.
@@ -122,6 +122,6 @@ func askURL() string {
 		}
 
 		pterm.Println()
-		util.LogWarning("Invalid URL: must start with ws:// or wss:// and cannot be empty")
+		util.LogWarning("invalid URL: must start with ws:// or wss:// and cannot be empty")
 	}
 }

@@ -98,6 +98,8 @@ func RunAsHost(ctx context.Context, tr Transport, targetAddr string) error {
 			return
 		}
 
+		util.LogDebug("[%08x] new socket created for incoming connection", pkt.SocketID)
+
 		s := newSocket(ctx, pkt.SocketID, tr)
 		a.register(s)
 		go s.runAsHost(targetAddr)
@@ -123,7 +125,7 @@ func RunAsClient(ctx context.Context, tr Transport, localAddr string) error {
 		}
 
 		if pkt.Type == protocol.TypeData {
-			util.LogWarning("[%08x] unknown socketID, dropping DATA packet", pkt.SocketID)
+			util.LogDebug("[%08x] unknown socketID, dropping DATA packet", pkt.SocketID)
 		}
 	})
 
@@ -147,11 +149,11 @@ func RunAsClient(ctx context.Context, tr Transport, localAddr string) error {
 			if err != nil {
 				select {
 				case <-ctx.Done():
-					return
+					util.LogDebug("virtual service listener closed, stopping accept loop")
 				default:
-					util.LogError("accept error: %v", err)
-					return
+					util.LogError("virtual service accept error: %v", err)
 				}
+				return
 			}
 
 			socketID := util.SocketIDFromConn(conn)

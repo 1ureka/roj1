@@ -18,23 +18,22 @@ import (
 
 // EstablishAsHost executes the full host-side signaling flow:
 //  1. Start a WS server on a random port
-//  2. Print port info
-//  3. Wait for the client to connect
-//  4. Create a Transport
-//  5. Perform SDP/ICE exchange
-//  6. Wait for the DataChannel to be ready
-//  7. Close the WS server and connection (resource cleanup)
-//  8. Return the ready Transport
+//  2. Wait for the client to connect
+//  3. Create a Transport
+//  4. Perform SDP/ICE exchange
+//  5. Wait for the DataChannel to be ready
+//  6. Close the WS server and connection (resource cleanup)
+//  7. Return the ready Transport
 func EstablishAsHost(ctx context.Context) (*transport.Transport, error) {
 	// 1. Start WS server.
 	spinner, _ := pterm.DefaultSpinner.
 		WithRemoveWhenDone(true).
-		Start("Starting WebSocket signaling server...")
+		Start("starting WebSocket signaling server...")
 
 	srv := &server{connCh: make(chan *websocket.Conn, 1)}
 	wsPort, err := srv.start()
 	if err != nil {
-		spinner.Fail("Failed to start WebSocket server")
+		spinner.Fail("failed to start WebSocket server")
 		return nil, err
 	}
 	defer srv.close()
@@ -46,21 +45,21 @@ func EstablishAsHost(ctx context.Context) (*transport.Transport, error) {
 	// 2. Wait for client
 	wsConn, err := srv.waitForClient(ctx)
 	if err != nil {
-		spinner.Fail("Failed while waiting for client connection")
+		spinner.Fail("failed while waiting for client connection")
 		return nil, err
 	}
 	defer wsConn.Close()
 
-	spinner.UpdateText("Client connected — negotiating WebRTC...")
+	spinner.UpdateText("client connected — negotiating WebRTC...")
 
-	// 4. Create Transport.
+	// 3. Create Transport.
 	tr, err := transport.NewTransport(ctx)
 	if err != nil {
-		spinner.Fail("Failed to create Transport")
+		spinner.Fail("failed to create Transport")
 		return nil, err
 	}
 
-	// 5. Perform SDP/ICE exchange.
+	// 4. Perform SDP/ICE exchange.
 	s := &sender{tr: tr, conn: wsConn}
 	r := &receiver{tr: tr, conn: wsConn, sender: s}
 
@@ -78,25 +77,25 @@ func EstablishAsHost(ctx context.Context) (*transport.Transport, error) {
 
 	if err := s.sendOffer(); err != nil {
 		tr.Close()
-		spinner.Fail("Failed to send Offer")
+		spinner.Fail("failed to send Offer")
 		return nil, err
 	}
 
-	// 6. Wait for result.
+	// 5. Wait for result.
 	select {
 	case <-tr.Ready():
 		spinner.Success("WebRTC DataChannel established")
-		util.LogInfo("Closing websocket connection")
+		util.LogInfo("closing websocket connection")
 		return tr, nil
 
 	case err := <-errCh:
 		tr.Close()
-		spinner.Fail("Failed to read signaling messages")
+		spinner.Fail("failed to read signaling messages")
 		return nil, err
 
 	case <-ctx.Done():
 		tr.Close()
-		spinner.Fail("Context cancelled while waiting for signaling")
+		spinner.Fail("context cancelled while waiting for signaling")
 		return nil, ctx.Err()
 	}
 }
@@ -112,11 +111,11 @@ func EstablishAsClient(ctx context.Context, wsURL string) (*transport.Transport,
 	// 1. Connect to WS server.
 	spinner, _ := pterm.DefaultSpinner.
 		WithRemoveWhenDone(true).
-		Start("Connecting to Host via WebSocket...")
+		Start("connecting to Host via WebSocket...")
 
 	wsConn, err := connect(ctx, wsURL)
 	if err != nil {
-		spinner.Fail("Failed to connect to WebSocket server")
+		spinner.Fail("failed to connect to WebSocket server")
 		return nil, err
 	}
 	defer wsConn.Close()
@@ -126,7 +125,7 @@ func EstablishAsClient(ctx context.Context, wsURL string) (*transport.Transport,
 	// 2. Create Transport.
 	tr, err := transport.NewTransport(ctx)
 	if err != nil {
-		spinner.Fail("Failed to create Transport")
+		spinner.Fail("failed to create Transport")
 		return nil, err
 	}
 
@@ -150,17 +149,17 @@ func EstablishAsClient(ctx context.Context, wsURL string) (*transport.Transport,
 	select {
 	case <-tr.Ready():
 		spinner.Success("WebRTC DataChannel established")
-		util.LogInfo("Closing websocket connection")
+		util.LogInfo("closing websocket connection")
 		return tr, nil
 
 	case err := <-errCh:
 		tr.Close()
-		spinner.Fail("Failed to read signaling messages")
+		spinner.Fail("failed to read signaling messages")
 		return nil, err
 
 	case <-ctx.Done():
 		tr.Close()
-		spinner.Fail("Context cancelled while waiting for signaling")
+		spinner.Fail("context cancelled while waiting for signaling")
 		return nil, ctx.Err()
 	}
 }

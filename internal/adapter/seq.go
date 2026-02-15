@@ -3,8 +3,8 @@ package adapter
 import "sync/atomic"
 
 // SeqGen is a per-socketID atomic sequence number generator.
-// It is shared across the socket's goroutines (handler, TCP-to-DC pump, and
-// cleanup), so all operations are atomic.
+// It is shared across the socket's goroutines (main loop, TCP-to-DC pump, and cleanup),
+// so all operations are atomic.
 type SeqGen struct {
 	val atomic.Uint32
 }

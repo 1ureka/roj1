@@ -4,6 +4,7 @@ import (
 	"container/heap"
 
 	"github.com/1ureka/1ureka.net.p2p/internal/protocol"
+	"github.com/1ureka/1ureka.net.p2p/internal/util"
 )
 
 // Reassembler reorders out-of-order packets within a single socketID stream.
@@ -22,7 +23,8 @@ func NewReassembler() *Reassembler {
 // delivered in sequence order. Returns nil if no packets are ready.
 func (r *Reassembler) Feed(pkt *protocol.Packet) []*protocol.Packet {
 	if pkt.SeqNum < r.expectedSeq {
-		// Duplicate or stale packet — ignore.
+		util.LogDebug("[%08x] received packet with old SeqNum %d (expected %d), ignoring",
+			pkt.SocketID, pkt.SeqNum, r.expectedSeq)
 		return nil
 	}
 

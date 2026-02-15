@@ -199,6 +199,6 @@ func (s *Socket) cleanup() {
 			s.tcpConn.Close()
 		}
 		s.tr.SendClose(s.id, s.seq.Next())
-		util.LogDebug("[%08x] Socket cleanup complete", s.id)
+		util.LogDebug("[%08x] socket cleanup complete", s.id)
 	})
 }
