@@ -2,6 +2,7 @@ package tests
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 
 	"github.com/1ureka/1ureka.net.p2p/internal/protocol"
@@ -222,7 +223,7 @@ func TestEncodeLargePayload(t *testing.T) {
 	}
 
 	for _, size := range sizes {
-		t.Run(string(rune(size))+" bytes", func(t *testing.T) {
+		t.Run(fmt.Sprintf("%d bytes", size), func(t *testing.T) {
 			payload := make([]byte, size)
 			for i := range payload {
 				payload[i] = byte(i % 256)
