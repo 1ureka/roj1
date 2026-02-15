@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/1ureka/1ureka.net.p2p/internal/protocol"
-	"github.com/1ureka/1ureka.net.p2p/internal/transport"
 	"github.com/1ureka/1ureka.net.p2p/internal/util"
 )
 
@@ -31,7 +30,7 @@ type Socket struct {
 
 	// Communication
 	inbox chan *protocol.Packet // fed by the adapter's dispatch loop
-	tr    *transport.Transport  // shared, thread-safe sender
+	tr    Transport             // shared, thread-safe sender
 
 	// Per-socket local tools
 	seq   *SeqGen
@@ -42,7 +41,7 @@ type Socket struct {
 }
 
 // newSocket creates a Socket without a TCP connection (used by host mode).
-func newSocket(parentCtx context.Context, id uint32, tr *transport.Transport) *Socket {
+func newSocket(parentCtx context.Context, id uint32, tr Transport) *Socket {
 	ctx, cancel := context.WithCancel(parentCtx)
 	return &Socket{
 		id:     id,
@@ -57,7 +56,7 @@ func newSocket(parentCtx context.Context, id uint32, tr *transport.Transport) *S
 
 // newSocketWithConn creates a Socket with an already-established TCP connection
 // (used by client mode, where the local TCP accept happens first).
-func newSocketWithConn(parentCtx context.Context, id uint32, tr *transport.Transport, conn net.Conn) *Socket {
+func newSocketWithConn(parentCtx context.Context, id uint32, tr Transport, conn net.Conn) *Socket {
 	s := newSocket(parentCtx, id, tr)
 	s.tcpConn = conn
 	return s

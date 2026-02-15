@@ -9,22 +9,31 @@ import (
 	"sync"
 
 	"github.com/1ureka/1ureka.net.p2p/internal/protocol"
-	"github.com/1ureka/1ureka.net.p2p/internal/transport"
 	"github.com/1ureka/1ureka.net.p2p/internal/util"
 )
+
+// Transport defines the capabilities that adapter requires from the
+// underlying data transport layer.
+type Transport interface {
+	SendConnect(socketID, seqNum uint32)
+	SendData(socketID, seqNum uint32, payload []byte)
+	SendClose(socketID, seqNum uint32)
+	OnPacket(fn func(*protocol.Packet))
+	Done() <-chan struct{}
+}
 
 // adapter manages the socketID route table and auto-cleanup.
 // It is unexported — callers use RunAsHost / RunAsClient.
 type adapter struct {
 	ctx context.Context
-	tr  *transport.Transport
+	tr  Transport
 
 	mu     sync.Mutex
 	routes map[uint32]*Socket
 }
 
 // newAdapter creates an empty adapter bound to the given context and transport.
-func newAdapter(ctx context.Context, tr *transport.Transport) *adapter {
+func newAdapter(ctx context.Context, tr Transport) *adapter {
 	return &adapter{
 		ctx:    ctx,
 		tr:     tr,
@@ -76,7 +85,7 @@ func (a *adapter) deliver(pkt *protocol.Packet) bool {
 // incoming packets; when an unknown socketID appears (with a non-CLOSE packet),
 // it creates a Socket and launches a goroutine that dials targetAddr.
 // Blocks until the transport is done.
-func RunAsHost(ctx context.Context, tr *transport.Transport, targetAddr string) error {
+func RunAsHost(ctx context.Context, tr Transport, targetAddr string) error {
 	a := newAdapter(ctx, tr)
 
 	tr.OnPacket(func(pkt *protocol.Packet) {
@@ -104,7 +113,7 @@ func RunAsHost(ctx context.Context, tr *transport.Transport, targetAddr string) 
 // incoming TCP connections; each accepted connection becomes a Socket that
 // sends CONNECT and bridges data through the DataChannel.
 // Blocks until the transport is done.
-func RunAsClient(ctx context.Context, tr *transport.Transport, localAddr string) error {
+func RunAsClient(ctx context.Context, tr Transport, localAddr string) error {
 	a := newAdapter(ctx, tr)
 
 	// Wire up DataChannel → Socket dispatch.
