@@ -1,8 +1,13 @@
 package tests
 
 import (
+	"bytes"
+	"context"
+	"io"
 	"math/rand/v2"
+	"net"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/1ureka/1ureka.net.p2p/internal/adapter"
@@ -106,4 +111,164 @@ func (m *mockTransport) deliverToPeer(pkt *protocol.Packet) {
 			fn(pkt)
 		}
 	}()
+}
+
+// ---------------------------------------------------------------------------
+// Test helpers
+// ---------------------------------------------------------------------------
+
+// startEchoServer starts a TCP echo server that copies everything it receives
+// back to the sender. Returns the address (host:port) it is listening on.
+func startEchoServer(t *testing.T, ctx context.Context) string {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("echo server: listen failed: %v", err)
+	}
+	go func() {
+		<-ctx.Done()
+		l.Close()
+	}()
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				io.Copy(c, c)
+			}(conn)
+		}
+	}()
+	return l.Addr().String()
+}
+
+// getFreeAddr finds a free TCP port on loopback and returns its address.
+func getFreeAddr(t *testing.T) string {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("getFreeAddr: %v", err)
+	}
+	addr := l.Addr().String()
+	l.Close()
+	return addr
+}
+
+// waitForListener polls the given address until a TCP connection succeeds or
+// the timeout elapses. The probe connection is immediately closed.
+func waitForListener(t *testing.T, addr string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", addr, 100*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("listener at %s not ready within %v", addr, timeout)
+}
+
+// makeTestData generates deterministic test data of the given size.
+// Each byte is derived from its index XOR-ed with the seed, ensuring that
+// different connections produce distinguishable payloads.
+func makeTestData(size int, seed byte) []byte {
+	data := make([]byte, size)
+	for i := range data {
+		data[i] = byte(i%251) ^ seed
+	}
+	return data
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+// TestRunAsHostAndClient exercises the full tunnel path:
+//
+//	[TCP client] <-> [RunAsClient] <-> [mockTransport] <-> [RunAsHost] <-> [echo server]
+//
+// Multiple concurrent connections each send a 64 KB payload (which exceeds
+// maxPayloadSize = 16 KB, forcing multi-packet splitting). The mockTransport
+// delivers packets with random delays, so the Reassembler's out-of-order
+// handling is exercised. Data integrity is verified by comparing the echoed
+// bytes to the original.
+func TestRunAsHostAndClient(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+
+	// 1. Infrastructure
+	echoAddr := startEchoServer(t, ctx)
+	clientTr, hostTr := MockTransports()
+	clientAddr := getFreeAddr(t)
+
+	var wg sync.WaitGroup
+	defer func() {
+		cancel()
+		clientTr.Close()
+		hostTr.Close()
+		wg.Wait()
+	}()
+
+	// 2. Start both sides of the tunnel
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		adapter.RunAsHost(ctx, hostTr, echoAddr)
+	}()
+	go func() {
+		defer wg.Done()
+		adapter.RunAsClient(ctx, clientTr, clientAddr)
+	}()
+
+	waitForListener(t, clientAddr, 5*time.Second)
+
+	// 3. Open multiple TCP connections through the tunnel concurrently
+	const numConns = 10
+	const dataSize = 1 * 1024 * 1024 // 1 MB — stress test for multi-packet handling and reassembly
+
+	var connWg sync.WaitGroup
+	for i := range numConns {
+		connWg.Add(1)
+		go func(idx int) {
+			defer connWg.Done()
+
+			conn, err := net.Dial("tcp", clientAddr)
+			if err != nil {
+				t.Errorf("[conn %d] dial: %v", idx, err)
+				return
+			}
+			defer conn.Close()
+
+			sent := makeTestData(dataSize, byte(idx))
+
+			// Write and read concurrently to avoid TCP buffer deadlock.
+			errCh := make(chan error, 1)
+			go func() {
+				_, err := conn.Write(sent)
+				errCh <- err
+			}()
+
+			got := make([]byte, dataSize)
+			conn.SetReadDeadline(time.Now().Add(15 * time.Second))
+			if _, err := io.ReadFull(conn, got); err != nil {
+				t.Errorf("[conn %d] read echo: %v", idx, err)
+				return
+			}
+
+			if err := <-errCh; err != nil {
+				t.Errorf("[conn %d] write: %v", idx, err)
+				return
+			}
+
+			if !bytes.Equal(sent, got) {
+				t.Errorf("[conn %d] echoed data mismatch (sent %d bytes, got %d bytes)",
+					idx, len(sent), len(got))
+			}
+		}(i)
+	}
+
+	connWg.Wait()
 }
