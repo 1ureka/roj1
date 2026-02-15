@@ -111,6 +111,27 @@ func RunAsHost(ctx context.Context, tr Transport, targetAddr string) error {
 	return nil
 }
 
+// portToID converts a 16-bit ephemeral port number to a 32-bit socket identifier.
+//
+// On the client side, the TCP listener binds to a fixed address (e.g., 127.0.0.1:8080).
+// Each incoming connection has:
+//   - Fixed local IP and port (the virtual service listener address)
+//   - Fixed remote IP (loopback, because virtual service listener only accepts local connections)
+//   - OS-assigned ephemeral remote port (the only varying component)
+//
+// Therefore, the remote port alone is sufficient as a unique identifier for each socket.
+//
+// This function applies a simple XOR-based mixing for visual obfuscation,
+// transforming the 16-bit port into a 32-bit value. The transformation is
+// deterministic and collision-free within the port space.
+func portToID(port uint16) uint32 {
+	v := uint32(port)
+	v ^= v << 13
+	v ^= v >> 17
+	v ^= v << 5
+	return v
+}
+
 // RunAsClient starts the client-side adapter. It listens on localPort for
 // incoming TCP connections; each accepted connection becomes a Socket that
 // sends CONNECT and bridges data through the DataChannel.
@@ -156,7 +177,8 @@ func RunAsClient(ctx context.Context, tr Transport, localAddr string) error {
 				return
 			}
 
-			socketID := util.SocketIDFromConn(conn)
+			addr := conn.RemoteAddr().(*net.TCPAddr)
+			socketID := portToID(uint16(addr.Port))
 			util.LogDebug("[%08x] new connection from %s", socketID, conn.RemoteAddr())
 
 			s := newSocketWithConn(ctx, socketID, tr, conn)
