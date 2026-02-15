@@ -5,9 +5,10 @@
 ## Features
 
 - **Zero Cost:** No subscription, no bandwidth limits, and no infrastructure fees.
-- **Direct P2P:** Your data stays between you and your peer; no traffic passes through a central server.
 - **Single Binary:** Written in **Go**. No drivers, runtimes, or installations required.
+- **Direct P2P:** Your data stays between you and your peer; no traffic passes through a central server.
 - **NAT Traversal:** Works behind most home routers and mobile hotspots using STUN.
+- **Lightweight:** The core is built using only the `gorilla/websocket` and `pion/webrtc` libraries.
 
 ## Common Use Cases
 
