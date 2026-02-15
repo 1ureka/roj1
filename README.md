@@ -1,21 +1,57 @@
-本專案是一個 P2P TCP 隧道工具，透過 WebRTC DataChannel 在兩端之間轉發 TCP 流量，無需中繼伺服器 Signaling 階段使用 WebSocket
-在實際使用時，會使用 VS Code 端口轉發(之前已測試成功)，由於一旦建立 p2p 連線後，就不須 ws
-因此對於 VS Code 的限制與安全性要求來說，即便是實際使用時，也不會有超出流量限制的問題，從而達到免部屬、免流量限制的 p2p 隧道工具的目標。
-(實際使用時，也可將 VS Code 端口轉發的隨機地址當作 "房間號" 的概念)
+# 1ureka.net.p2p
 
-待撰寫，但這裡先寫下幾個憲法:
+**Share any TCP service — Minecraft, AI APIs, or databases — directly and securely without port forwarding or static IPs.**
 
-1. 這個工具不是為了商業與大規模使用，重要的是要維持免部屬、免費、無流量限制的特點。
-2. 因此，永遠不提供 TURN 服務
-3. 為了保證免部屬，對於 Host 端的依賴會有 VS Code 端口轉發的限制
-4. 對於 Client 端，則不會有任何限制，因為它只是單純的 TCP 監聽器與 DataChannel 的橋接
-5. 為了避免濫用 VS Code 端口轉發的功能，一旦建立 p2p 連線後，就會立即關閉 WebSocket 信令通道
-6. 這也順便減少了信令通道的安全風險，因為一旦建立連線後，就算忘記關掉 VS Code 的端口轉發，該服務也早就無法再被訪問了
+## Features
 
-另外該專案的初始動機是:
+- **Zero Cost:** No subscription, no bandwidth limits, and no infrastructure fees.
+- **Direct P2P:** Your data stays between you and your peer; no traffic passes through a central server.
+- **Single Binary:** Written in **Go**. No drivers, runtimes, or installations required.
+- **NAT Traversal:** Works behind most home routers and mobile hotspots using STUN.
 
-想與朋友玩 Minecraft，且是模組包 + 專屬伺服器， Hamachi 之類的工具只能用在開遊戲後的 "公開至局域網" 功能，根本不能用於專屬伺服器的連線
+## Common Use Cases
 
-關於測試:
+| Service                | Host Side (Source)                                                                                    | Client Side (Destination)                                                         | Result                                                                                                                               |
+| ---------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| **Gaming (Minecraft)** | Run your dedicated server on port **25565** and start the CLI as **Host**.                            | Join using the "room code" and map it to local port **25565**.                    | Your friend joins by entering **`127.0.0.1`** in Minecraft. No Hamachi or laggy relays, even for heavy modpacks.                     |
+| **AI & LLM Services**  | On your **machine with a GPU**, launch your AI API (e.g., Ollama on **11434**) and start as **Host**. | Join using the "room code" and map it to **any available local port** you prefer. | You can access your local GPU power by pointing their apps to **`127.0.0.1:<your_port>`** as if the AI were running on their own PC. |
+| **Self-Hosted Tools**  | Run collaboration platforms like **Mattermost, Wiki.js, or Penpot** locally.                          | Same as above                                                                     | Teams can collaborate on self-hosted instances in real-time without deploying to a cloud provider or VPS.                            |
 
-該專案已經透過 Electron 的版本實測(當時是 TCP(nodeJS) <=> IPC <=> renderer <=> webrtc) 台灣到加拿大的 Minecraft 直連，目前正在轉語言至 Go，並且目前已經通過 Vite Dev Server + HMR 的測試
+---
+
+## Getting Started
+
+### Prerequisites (Host Only)
+
+The **Host** needs [Visual Studio Code](https://code.visualstudio.com/) installed to handle the initial handshake via its native Port Forwarding feature (requires a GitHub login).
+
+### Setup
+
+1. **Download:** Get the latest binary for your OS from the [Releases page](https://github.com/1ureka/1ureka.net.p2p/releases).
+2. **Launch:** Run the executable in your terminal.
+
+#### For the Host:
+
+1. Select **Host** in the CLI.
+2. Enter the **target port** of your local service (e.g., `25565`).
+3. In VS Code, go to the **Ports** panel, forward the port shown in the CLI, and set its visibility to **Public**.
+4. Share the generated **Forwarded Address** (the URL) with the Client.
+5. Once the Client connects, you can stop forwarding the port in VS Code and the P2P tunnel will continue to work without it.
+
+#### For the Client:
+
+1. Select **Client** in the CLI.
+2. Paste the **URL** provided by the Host.
+3. Enter a **local port** where you want the service to appear on your machine.
+4. Access the service at `127.0.0.1:<local_port>`.
+
+---
+
+## Network Compatibility
+
+- **Optimal:** Home Fiber/Broadband, Wi-Fi, 4G/5G mobile hotspots.
+- **Limited:** Strict corporate firewalls (Symmetric NAT) or public Wi-Fi that blocks P2P traffic.
+
+## Support
+
+Report bugs or suggest features via [GitHub Issues](https://github.com/1ureka/1ureka.net.p2p/issues). Please include your OS version and any error logs.
