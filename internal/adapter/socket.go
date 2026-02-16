@@ -18,7 +18,14 @@ const (
 )
 
 // Socket holds the complete lifecycle state for one socketID.
-// It is goroutine-local — only the owning goroutine calls its methods.
+//
+// A Socket spawns up to three long-running goroutines (pushLoop,
+// writeOrConnLoop/writeLoop, readLoop). Concurrent access is safe because:
+//   - inbox is a buffered channel (dispatch → pushLoop)
+//   - Reassembler is mutex-protected (pushLoop ↔ writeOrConnLoop/writeLoop)
+//   - SeqGen uses atomic operations
+//   - tcpConn is set before readLoop is launched (happens-before)
+//   - cleanup is guarded by sync.Once
 type Socket struct {
 	// Identity
 	id uint32
@@ -29,8 +36,8 @@ type Socket struct {
 	closeOnce sync.Once
 
 	// Communication
-	inbox chan *protocol.Packet // fed by the adapter's dispatch loop
-	tr    Transport             // shared, thread-safe sender
+	inbox chan *protocol.Packet
+	tr    Transport // shared, thread-safe sender
 
 	// Per-socket local tools
 	seq   *SeqGen
@@ -47,7 +54,7 @@ func newSocket(parentCtx context.Context, id uint32, tr Transport) *Socket {
 		id:     id,
 		ctx:    ctx,
 		cancel: cancel,
-		inbox:  make(chan *protocol.Packet, 256),
+		inbox:  make(chan *protocol.Packet, 256), // pushLoop must never block, so 256 is enough
 		tr:     tr,
 		seq:    NewSeqGen(),
 		reasm:  NewReassembler(),
@@ -63,16 +70,48 @@ func newSocketWithConn(parentCtx context.Context, id uint32, tr Transport, conn 
 }
 
 // ---------------------------------------------------------------------------
-// Host-side entry point
+// Run methods — external entry points
 // ---------------------------------------------------------------------------
 
 // runAsHost is the complete lifecycle for a host-side socketID.
-// A dedicated pushLoop goroutine feeds the Reassembler from the inbox;
-// this goroutine drains consecutive packets and bridges them to TCP.
+// It launches pushLoop (inbox → Reassembler) and writeOrConnLoop
+// (Reassembler → TCP dial + write) as dedicated goroutines, then blocks
+// until the context is cancelled (triggered by any goroutine calling cleanup).
 func (s *Socket) runAsHost(targetAddr string) {
 	defer s.cleanup()
 
 	go s.pushLoop()
+	go s.writeOrConnLoop(targetAddr)
+
+	<-s.ctx.Done()
+}
+
+// runAsClient is the complete lifecycle for a client-side socketID.
+// Already holds a TCP connection from accept; sends CONNECT immediately,
+// then launches pushLoop, writeLoop, and readLoop as dedicated goroutines.
+// Blocks until the context is cancelled.
+func (s *Socket) runAsClient() {
+	defer s.cleanup()
+
+	s.tr.SendConnect(s.id, s.seq.Next())
+
+	go s.pushLoop()
+	go s.writeLoop()
+	go s.readLoop()
+
+	<-s.ctx.Done()
+}
+
+// ---------------------------------------------------------------------------
+// Loop methods — long-running goroutines
+// ---------------------------------------------------------------------------
+
+// writeOrConnLoop is the host-side drain loop. It waits for Reassembler
+// notifications, drains consecutive packets, and handles CONNECT (dial TCP),
+// DATA (write to TCP), and CLOSE (shut down). On receiving CONNECT it starts
+// readLoop for the reverse direction.
+func (s *Socket) writeOrConnLoop(targetAddr string) {
+	defer s.cleanup()
 
 	connected := false
 
@@ -93,7 +132,7 @@ func (s *Socket) runAsHost(targetAddr string) {
 					s.tcpConn = conn
 					connected = true
 					util.LogDebug("[%08x] TCP connected to %s", s.id, targetAddr)
-					go s.pumpTCPToDataChannel()
+					go s.readLoop()
 
 				case protocol.TypeData:
 					if !connected {
@@ -116,21 +155,11 @@ func (s *Socket) runAsHost(targetAddr string) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Client-side entry point
-// ---------------------------------------------------------------------------
-
-// runAsClient is the complete lifecycle for a client-side socketID.
-// Already holds a TCP connection from accept; sends CONNECT immediately,
-// then forwards data bidirectionally until CLOSE or context cancellation.
-// A dedicated pushLoop goroutine feeds the Reassembler from the inbox;
-// this goroutine drains consecutive packets and writes them to TCP.
-func (s *Socket) runAsClient() {
+// writeLoop is the client-side drain loop. It waits for Reassembler
+// notifications, drains consecutive packets, and writes DATA payloads to the
+// TCP connection. Returns on CLOSE or context cancellation.
+func (s *Socket) writeLoop() {
 	defer s.cleanup()
-
-	s.tr.SendConnect(s.id, s.seq.Next())
-	go s.pumpTCPToDataChannel()
-	go s.pushLoop()
 
 	for {
 		select {
@@ -154,21 +183,19 @@ func (s *Socket) runAsClient() {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TCP → DataChannel
-// ---------------------------------------------------------------------------
-
-// pushLoop reads packets from the inbox and pushes them into the reassembler.
+// pushLoop reads packets from the inbox and pushes them into the Reassembler.
 // It runs in a dedicated goroutine so that Push (a fast heap insert) is never
-// blocked by TCP writes happening in the drain goroutine.
+// blocked by TCP writes happening in the drain loop (writeOrConnLoop /
+// writeLoop).
 func (s *Socket) pushLoop() {
+	defer s.cleanup()
+
 	for {
 		select {
 		case pkt := <-s.inbox:
 			if s.reasm.Push(pkt) {
 				util.LogWarning("[%08x] reassembler buffer exceeded %d MiB, treating as disconnection",
 					s.id, maxBufferedBytes/(1024*1024))
-				s.cleanup()
 				return
 			}
 		case <-s.ctx.Done():
@@ -177,9 +204,10 @@ func (s *Socket) pushLoop() {
 	}
 }
 
-// pumpTCPToDataChannel reads from the TCP connection and sends DATA packets.
-// It uses a blocking Read; cleanup() closes the TCP connection to unblock it.
-func (s *Socket) pumpTCPToDataChannel() {
+// readLoop reads from the TCP connection and sends DATA packets through the
+// DataChannel. It uses a blocking Read; cleanup() closes the TCP connection
+// to unblock it.
+func (s *Socket) readLoop() {
 	defer s.cleanup()
 
 	buf := make([]byte, maxPayloadSize)
@@ -211,6 +239,10 @@ func (s *Socket) pumpTCPToDataChannel() {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Cleanup
+// ---------------------------------------------------------------------------
 
 // cleanup consolidates all shutdown actions behind sync.Once so that
 // regardless of which goroutine exits first, resources are released
