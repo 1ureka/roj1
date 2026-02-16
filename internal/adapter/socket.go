@@ -13,8 +13,9 @@ import (
 
 // Tuning constants.
 const (
-	maxPayloadSize  = 16 * 1024 // 16 KB per DATA packet payload
-	inboxBufferSize = 256       // per-socketID inbox channel capacity
+	maxPayloadSize   = 16 * 1024         // 16 KB per DATA packet payload
+	inboxBufferSize  = 256               // per-socketID inbox channel capacity for concurrent packet arrivals
+	maxBufferedBytes = 100 * 1024 * 1024 // per-socketID buffer limit for out-of-order packets (to prevent OOM)
 )
 
 // Socket holds the complete lifecycle state for one socketID.
@@ -78,7 +79,15 @@ func (s *Socket) runAsHost(targetAddr string) {
 	for {
 		select {
 		case pkt := <-s.inbox:
-			for _, d := range s.reasm.Feed(pkt) {
+			ordered, overflow := s.reasm.Feed(pkt)
+
+			if overflow {
+				util.LogWarning("[%08x] reassembler buffer exceeded %d MiB, treating as disconnection",
+					s.id, maxBufferedBytes/(1024*1024))
+				return
+			}
+
+			for _, d := range ordered {
 				switch d.Type {
 				case protocol.TypeConnect:
 					if connected {
@@ -131,7 +140,15 @@ func (s *Socket) runAsClient() {
 	for {
 		select {
 		case pkt := <-s.inbox:
-			for _, d := range s.reasm.Feed(pkt) {
+			ordered, overflow := s.reasm.Feed(pkt)
+
+			if overflow {
+				util.LogWarning("[%08x] reassembler buffer exceeded %d MiB, treating as disconnection",
+					s.id, maxBufferedBytes/(1024*1024))
+				return
+			}
+
+			for _, d := range ordered {
 				switch d.Type {
 				case protocol.TypeData:
 					if _, err := s.tcpConn.Write(d.Payload); err != nil {

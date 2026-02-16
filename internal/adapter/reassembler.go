@@ -10,8 +10,9 @@ import (
 // Reassembler reorders out-of-order packets within a single socketID stream.
 // It is goroutine-local (used inside a per-socketID goroutine) and needs no locking.
 type Reassembler struct {
-	expectedSeq uint32
-	buffer      packetHeap
+	expectedSeq   uint32
+	buffer        packetHeap
+	bufferedBytes int
 }
 
 // NewReassembler creates a reassembler expecting sequence numbers starting at 1.
@@ -19,19 +20,24 @@ func NewReassembler() *Reassembler {
 	return &Reassembler{expectedSeq: 1}
 }
 
-// Feed processes an incoming packet and returns all packets that can now be
-// delivered in sequence order. Returns nil if no packets are ready.
-func (r *Reassembler) Feed(pkt *protocol.Packet) []*protocol.Packet {
+// Feed processes an incoming packet and returns all packets that can now be delivered in sequence order.
+// Returns (nil, true) if the buffer has exceeded the size limit.
+func (r *Reassembler) Feed(pkt *protocol.Packet) ([]*protocol.Packet, bool) {
 	if pkt.SeqNum < r.expectedSeq {
 		util.LogDebug("[%08x] received packet with old SeqNum %d (expected %d), ignoring",
 			pkt.SocketID, pkt.SeqNum, r.expectedSeq)
-		return nil
+		return nil, false
 	}
 
 	if pkt.SeqNum > r.expectedSeq {
-		// Future packet — buffer it.
 		heap.Push(&r.buffer, pkt)
-		return nil
+		r.bufferedBytes += len(pkt.Payload)
+
+		if r.bufferedBytes > maxBufferedBytes {
+			return nil, true // signal to drop the connection due to excessive buffering
+		} else {
+			return nil, false
+		}
 	}
 
 	// pkt.SeqNum == r.expectedSeq — deliver it and drain any consecutive buffered packets.
@@ -39,11 +45,13 @@ func (r *Reassembler) Feed(pkt *protocol.Packet) []*protocol.Packet {
 	r.expectedSeq++
 
 	for r.buffer.Len() > 0 && r.buffer[0].SeqNum == r.expectedSeq {
-		result = append(result, heap.Pop(&r.buffer).(*protocol.Packet))
+		popped := heap.Pop(&r.buffer).(*protocol.Packet)
+		r.bufferedBytes -= len(popped.Payload)
+		result = append(result, popped)
 		r.expectedSeq++
 	}
 
-	return result
+	return result, false
 }
 
 // ---------------------------------------------------------------------------
