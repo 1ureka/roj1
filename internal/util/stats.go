@@ -3,6 +3,7 @@ package util
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"sync/atomic"
 	"time"
 
@@ -48,8 +49,8 @@ func StartStatsReporter(ctx context.Context) {
 				sent := Stats.BytesSent.Load()
 				recv := Stats.BytesRecv.Load()
 
-				inS := float64(sent-prevSent) / 10.0
-				outS := float64(recv-prevRecv) / 10.0
+				inS := float64(recv-prevRecv) / 10.0
+				outS := float64(sent-prevSent) / 10.0
 				inC := total - prevTotal
 				outC := closed - prevClosed
 
@@ -88,10 +89,14 @@ func formatBytes(b float64) string {
 
 // formatStats returns a formatted string of the current stats for display in the logger.
 func formatStats(inS, outS float64, inC, outC int64) string {
-	return fmt.Sprintf("In: %s/s | Out: %s/s | Conn: %2d↑ %2d↓",
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
+	return fmt.Sprintf("In: %s/s | Out: %s/s | Conn: %2d↑ %2d↓ | Mem: %s",
 		formatBytes(inS),
 		formatBytes(outS),
 		inC,
 		outC,
+		formatBytes(float64(m.Alloc)),
 	)
 }
