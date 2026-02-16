@@ -14,8 +14,7 @@ import (
 // Tuning constants.
 const (
 	maxPayloadSize   = 16 * 1024         // 16 KB per DATA packet payload
-	inboxBufferSize  = 256               // per-socketID inbox channel capacity for concurrent packet arrivals
-	maxBufferedBytes = 100 * 1024 * 1024 // per-socketID buffer limit for out-of-order packets (to prevent OOM)
+	maxBufferedBytes = 500 * 1024 * 1024 // per-socketID reassembler buffer limit (to prevent OOM)
 )
 
 // Socket holds the complete lifecycle state for one socketID.
@@ -48,7 +47,7 @@ func newSocket(parentCtx context.Context, id uint32, tr Transport) *Socket {
 		id:     id,
 		ctx:    ctx,
 		cancel: cancel,
-		inbox:  make(chan *protocol.Packet, inboxBufferSize),
+		inbox:  make(chan *protocol.Packet, 256),
 		tr:     tr,
 		seq:    NewSeqGen(),
 		reasm:  NewReassembler(),
@@ -68,26 +67,19 @@ func newSocketWithConn(parentCtx context.Context, id uint32, tr Transport, conn 
 // ---------------------------------------------------------------------------
 
 // runAsHost is the complete lifecycle for a host-side socketID.
-// Single state machine: waits for CONNECT → dials TCP → bidirectional
-// forwarding. All packet types are handled in one for-range, so no data
-// is lost when Reassembler delivers CONNECT and DATA in the same batch.
+// A dedicated pushLoop goroutine feeds the Reassembler from the inbox;
+// this goroutine drains consecutive packets and bridges them to TCP.
 func (s *Socket) runAsHost(targetAddr string) {
 	defer s.cleanup()
+
+	go s.pushLoop()
 
 	connected := false
 
 	for {
 		select {
-		case pkt := <-s.inbox:
-			ordered, overflow := s.reasm.Feed(pkt)
-
-			if overflow {
-				util.LogWarning("[%08x] reassembler buffer exceeded %d MiB, treating as disconnection",
-					s.id, maxBufferedBytes/(1024*1024))
-				return
-			}
-
-			for _, d := range ordered {
+		case <-s.reasm.Ready():
+			for _, d := range s.reasm.Drain() {
 				switch d.Type {
 				case protocol.TypeConnect:
 					if connected {
@@ -131,24 +123,19 @@ func (s *Socket) runAsHost(targetAddr string) {
 // runAsClient is the complete lifecycle for a client-side socketID.
 // Already holds a TCP connection from accept; sends CONNECT immediately,
 // then forwards data bidirectionally until CLOSE or context cancellation.
+// A dedicated pushLoop goroutine feeds the Reassembler from the inbox;
+// this goroutine drains consecutive packets and writes them to TCP.
 func (s *Socket) runAsClient() {
 	defer s.cleanup()
 
 	s.tr.SendConnect(s.id, s.seq.Next())
 	go s.pumpTCPToDataChannel()
+	go s.pushLoop()
 
 	for {
 		select {
-		case pkt := <-s.inbox:
-			ordered, overflow := s.reasm.Feed(pkt)
-
-			if overflow {
-				util.LogWarning("[%08x] reassembler buffer exceeded %d MiB, treating as disconnection",
-					s.id, maxBufferedBytes/(1024*1024))
-				return
-			}
-
-			for _, d := range ordered {
+		case <-s.reasm.Ready():
+			for _, d := range s.reasm.Drain() {
 				switch d.Type {
 				case protocol.TypeData:
 					if _, err := s.tcpConn.Write(d.Payload); err != nil {
@@ -170,6 +157,25 @@ func (s *Socket) runAsClient() {
 // ---------------------------------------------------------------------------
 // TCP → DataChannel
 // ---------------------------------------------------------------------------
+
+// pushLoop reads packets from the inbox and pushes them into the reassembler.
+// It runs in a dedicated goroutine so that Push (a fast heap insert) is never
+// blocked by TCP writes happening in the drain goroutine.
+func (s *Socket) pushLoop() {
+	for {
+		select {
+		case pkt := <-s.inbox:
+			if s.reasm.Push(pkt) {
+				util.LogWarning("[%08x] reassembler buffer exceeded %d MiB, treating as disconnection",
+					s.id, maxBufferedBytes/(1024*1024))
+				s.cleanup()
+				return
+			}
+		case <-s.ctx.Done():
+			return
+		}
+	}
+}
 
 // pumpTCPToDataChannel reads from the TCP connection and sends DATA packets.
 // It uses a blocking Read; cleanup() closes the TCP connection to unblock it.
