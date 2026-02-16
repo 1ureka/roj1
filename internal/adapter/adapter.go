@@ -41,11 +41,37 @@ func newAdapter(ctx context.Context, tr Transport) *adapter {
 	}
 }
 
-// register adds a socket to the route table and starts an auto-cleanup
-// goroutine that removes the entry when the socket's context is done.
-func (a *adapter) register(s *Socket) {
+// registerOrGet (for host) looks up the socketID in the route table. If found, returns the
+// existing Socket and false. If not found, creates a new Socket, registers it, and returns it with true.
+func (a *adapter) registerOrGet(ctx context.Context, id uint32, tr Transport) (*Socket, bool) {
 	a.mu.Lock()
-	a.routes[s.id] = s
+	defer a.mu.Unlock()
+
+	if s, ok := a.routes[id]; ok {
+		return s, false
+	}
+
+	s := newSocket(ctx, id, tr)
+	a.routes[id] = s
+	util.Stats.AddConn()
+
+	go func() {
+		<-s.ctx.Done()
+		a.mu.Lock()
+		delete(a.routes, s.id)
+		a.mu.Unlock()
+		util.Stats.RemoveConn()
+	}()
+
+	return s, true
+}
+
+// register (for client) adds a socket to the route table and starts an auto-cleanup
+// goroutine that removes the entry when the socket's context is done.
+func (a *adapter) register(ctx context.Context, id uint32, tr Transport, conn net.Conn) *Socket {
+	s := newSocketWithConn(ctx, id, tr, conn)
+	a.mu.Lock()
+	a.routes[id] = s
 	a.mu.Unlock()
 	util.Stats.AddConn()
 
@@ -56,6 +82,8 @@ func (a *adapter) register(s *Socket) {
 		a.mu.Unlock()
 		util.Stats.RemoveConn()
 	}()
+
+	return s
 }
 
 // deliver routes a packet to the matching socket's inbox.
@@ -92,19 +120,20 @@ func RunAsHost(ctx context.Context, tr Transport, targetAddr string) error {
 		if a.deliver(pkt) {
 			return
 		}
-
 		// Unknown socketID — create a new socket (unless it's a stale CLOSE).
 		if pkt.Type == protocol.TypeClose {
 			return
 		}
 
-		util.LogDebug("[%08x] new socket created for incoming connection", pkt.SocketID)
+		s, created := a.registerOrGet(ctx, pkt.SocketID, tr)
+		if created {
+			util.LogDebug("[%08x] new socket created for incoming connection", pkt.SocketID)
+			go s.runAsHost(targetAddr)
+		}
 
-		s := newSocket(ctx, pkt.SocketID, tr)
-		a.register(s)
-		go s.runAsHost(targetAddr)
-
-		a.deliver(pkt) // Deliver the first packet that triggered creation.
+		if !a.deliver(pkt) {
+			util.LogError("[%08x] failed to deliver packet to newly created socket", pkt.SocketID)
+		}
 	})
 
 	<-tr.Done()
@@ -181,8 +210,7 @@ func RunAsClient(ctx context.Context, tr Transport, localAddr string) error {
 			socketID := portToID(uint16(addr.Port))
 			util.LogDebug("[%08x] new connection from %s", socketID, conn.RemoteAddr())
 
-			s := newSocketWithConn(ctx, socketID, tr, conn)
-			a.register(s)
+			s := a.register(ctx, socketID, tr, conn)
 			go s.runAsClient()
 		}
 	}()

@@ -227,7 +227,7 @@ func TestRunAsHostAndClient(t *testing.T) {
 
 	// 3. Open multiple TCP connections through the tunnel concurrently
 	const numConns = 10
-	const dataSize = 1 * 1024 * 1024 // 1 MB — stress test for multi-packet handling and reassembly
+	const dataSize = 10 * 1024 * 1024 // 10 MiB — stress test for multi-packet handling and reassembly
 
 	var connWg sync.WaitGroup
 	for i := range numConns {

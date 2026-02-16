@@ -14,7 +14,7 @@ import (
 // Tuning constants.
 const (
 	maxPayloadSize  = 16 * 1024 // 16 KB per DATA packet payload
-	inboxBufferSize = 64        // per-socketID inbox channel capacity
+	inboxBufferSize = 256       // per-socketID inbox channel capacity
 )
 
 // Socket holds the complete lifecycle state for one socketID.
