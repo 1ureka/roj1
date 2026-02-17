@@ -106,7 +106,7 @@ func askPort(prompt string) int {
 	}
 }
 
-// askURL prompts the user for a valid WebSocket URL (ws/wss scheme, /ws path) until one is entered.
+// askURL prompts the user for a valid WebSocket URL until one is entered.
 func askURL() string {
 	for {
 		raw, _ := pterm.DefaultInteractiveTextInput.
@@ -114,14 +114,17 @@ func askURL() string {
 			Show()
 
 		url, err := url.Parse(strings.TrimSpace(raw))
-		if err == nil && (url.Scheme == "ws" || url.Scheme == "wss") {
-			if url.Path == "/ws" {
-				pterm.Println()
-				return url.String()
+		if err == nil && url.Host != "" {
+			var scheme = "wss"
+			if url.Scheme == "ws" || url.Scheme == "wss" {
+				scheme = url.Scheme
 			}
+
+			pterm.Println()
+			return fmt.Sprintf("%s://%s/ws", scheme, url.Host)
 		}
 
 		pterm.Println()
-		util.LogWarning("invalid URL: must start with ws:// or wss:// and cannot be empty")
+		util.LogWarning("invalid input: please enter a valid host or URL")
 	}
 }
