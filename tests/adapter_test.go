@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/1ureka/1ureka.net.p2p/internal/adapter"
-	"github.com/1ureka/1ureka.net.p2p/internal/protocol"
+	"github.com/1ureka/roj1/internal/adapter"
+	"github.com/1ureka/roj1/internal/protocol"
 )
 
 // Compile-time interface check.

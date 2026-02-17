@@ -4,8 +4,8 @@ import (
 	"container/heap"
 	"sync"
 
-	"github.com/1ureka/1ureka.net.p2p/internal/protocol"
-	"github.com/1ureka/1ureka.net.p2p/internal/util"
+	"github.com/1ureka/roj1/internal/protocol"
+	"github.com/1ureka/roj1/internal/util"
 )
 
 // Reassembler reorders out-of-order packets within a single socketID stream.

@@ -8,8 +8,8 @@ import (
 	"net"
 	"sync"
 
-	"github.com/1ureka/1ureka.net.p2p/internal/protocol"
-	"github.com/1ureka/1ureka.net.p2p/internal/util"
+	"github.com/1ureka/roj1/internal/protocol"
+	"github.com/1ureka/roj1/internal/util"
 )
 
 // Transport defines the capabilities that adapter requires from the

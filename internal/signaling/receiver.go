@@ -7,7 +7,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/pion/webrtc/v4"
 
-	"github.com/1ureka/1ureka.net.p2p/internal/transport"
+	"github.com/1ureka/roj1/internal/transport"
 )
 
 // receiver processes incoming signaling messages from the WebSocket (private).

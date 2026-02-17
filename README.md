@@ -1,22 +1,28 @@
-# 1ureka.net.p2p
+# 🏮 Roj1 (Roji)
 
-**Share any TCP service — Minecraft, AI APIs, or databases — directly and securely without port forwarding or static IPs.**
+`Roj1` (pronounced as *Roji*, Japanese for "alleyway") is a lightweight tool that carves a private, **1-to-1** path between any two points on the internet. Share Minecraft servers, AI APIs, or local databases directly and securely—without port forwarding, static IPs, or middleman fees.
 
-## Features
+<!-- ![Go Report Card](https://goreport.card.com/badge/github.com/1ureka/roj1) -->
 
-- **Zero Cost:** No subscription, no bandwidth limits, and no infrastructure fees.
-- **Single Binary:** Written in **Go**. No drivers, runtimes, or installations required.
-- **Direct P2P:** Your data stays between you and your peer; no traffic passes through a central server.
-- **NAT Traversal:** Works behind most home routers and mobile hotspots using STUN.
-- **Lightweight:** The core is built using only the `gorilla/websocket` and `pion/webrtc` libraries.
+## Why Roj1?
+
+While the public internet becomes increasingly crowded and monetized, **Roj1** offers a quiet, hidden passage.
+
+* **Zero Tolls:** No subscriptions, no bandwidth caps, and no infrastructure costs.
+* **Pure P2P:** Your data stays between you and your peer. No traffic ever touches a central relay server.
+* **Single Binary:** A single Go binary. No drivers, no complex networking, just a direct link.
+* **NAT-Proof:** Effortlessly traverses home routers and mobile hotspots using STUN/WebRTC.
+* **Lightweight:** The core is built using only the `gorilla/websocket` and `pion/webrtc` libraries.
+
+---
 
 ## Common Use Cases
 
-| Service                | Host Side (Source)                                                                                    | Client Side (Destination)                                                         | Result                                                                                                                               |
-| ---------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| **Gaming (Minecraft)** | Run your dedicated server on port **25565** and start the CLI as **Host**.                            | Join using the "room code" and map it to local port **25565**.                    | Your friend joins by entering **`127.0.0.1`** in Minecraft. No Hamachi or laggy relays, even for heavy modpacks.                     |
-| **AI & LLM Services**  | On your **machine with a GPU**, launch your AI API (e.g., Ollama on **11434**) and start as **Host**. | Join using the "room code" and map it to **any available local port** you prefer. | You can access your local GPU power by pointing their apps to **`127.0.0.1:<your_port>`** as if the AI were running on their own PC. |
-| **Self-Hosted Tools**  | Run collaboration platforms like **Mattermost, Wiki.js, or Penpot** locally.                          | Same as above                                                                     | Teams can collaborate on self-hosted instances in real-time without deploying to a cloud provider or VPS.                            |
+| Service | The Host (Source) | The Peer (Destination) | The Experience |
+| --- | --- | --- | --- |
+| **Gaming** | Run Minecraft dedicated server on port `25565`. | Set port `25565` in **Roj1** and establish the connection. | Join the server via `127.0.0.1`. Low latency, no Hamachi bloat, even for heavy modpacks. |
+| **AI / LLM** | Host your AI service (e.g., Ollama (`11434`)) on your GPU rig. | Map to **any available local port** in **Roj1** and connect. | Use remote GPU power as if the AI were running natively on your laptop. |
+| **Self-Hosted Tools** | Run collaboration platforms like **Mattermost, Wiki.js, or Penpot** locally. | Same as above | Teams can collaborate on self-hosted instances without VPS or cloud deployment. |
 
 ---
 
@@ -28,31 +34,31 @@ The **Host** needs [Visual Studio Code](https://code.visualstudio.com/) installe
 
 ### Setup
 
-1. **Download:** Get the latest binary for your OS from the [Releases page](https://github.com/1ureka/1ureka.net.p2p/releases).
+1. **Download:** Get the latest binary for your OS from the [Releases page](https://github.com/1ureka/roj1/releases).
 2. **Launch:** Run the executable in your terminal.
 
-#### For the Host:
+### For the Host:
 
-1. Select **Host** in the CLI.
-2. Enter the **target port** of your local service (e.g., `25565`).
-3. In VS Code, go to the **Ports** panel, forward the port shown in the CLI, and set its visibility to **Public**.
-4. Share the generated **Forwarded Address** (the URL) with the Client.
-5. Once the Client connects, you can stop forwarding the port in VS Code and the P2P tunnel will continue to work without it.
+1. Launch `roj1` and select **Host**.
+2. Enter your local service port (e.g., `25565`).
+3. In VS Code's **Ports** panel, forward the port provided by the CLI and set visibility to **Public**.
+4. Share the generated **Forwarded URL** with your peer.
+5. *Once connected, you can stop the VS Code forward; the P2P tunnel is now independent.*
 
-#### For the Client:
+### For the Peer:
 
-1. Select **Client** in the CLI.
+1. Launch `roj1` and select **Client**.
 2. Paste the **URL** provided by the Host.
-3. Enter a **local port** where you want the service to appear on your machine.
-4. Access the service at `127.0.0.1:<local_port>`.
+3. Choose a local port to map the service to.
+4. Access the service at `127.0.0.1:<your_port>`.
 
 ---
 
 ## Network Compatibility
 
-- **Optimal:** Home Fiber/Broadband, Wi-Fi, 4G/5G mobile hotspots.
-- **Limited:** Strict corporate firewalls (Symmetric NAT) or public Wi-Fi that blocks P2P traffic.
+* **Optimal:** Fiber, Home Wi-Fi, 4G/5G mobile hotspots.
+* **Limited:** Strict corporate firewalls (Symmetric NAT) or public Wi-Fi with P2P blocking.
 
 ## Support
 
-Report bugs or suggest features via [GitHub Issues](https://github.com/1ureka/1ureka.net.p2p/issues). Please include your OS version and any error logs.
+Report bugs or suggest features via [GitHub Issues](https://github.com/1ureka/roj1/issues). Please include your OS version and any error logs.

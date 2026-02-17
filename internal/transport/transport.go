@@ -5,8 +5,8 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/1ureka/1ureka.net.p2p/internal/protocol"
-	"github.com/1ureka/1ureka.net.p2p/internal/util"
+	"github.com/1ureka/roj1/internal/protocol"
+	"github.com/1ureka/roj1/internal/util"
 	"github.com/pion/webrtc/v4"
 )
 

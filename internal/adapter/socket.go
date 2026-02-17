@@ -7,8 +7,8 @@ import (
 	"net"
 	"sync"
 
-	"github.com/1ureka/1ureka.net.p2p/internal/protocol"
-	"github.com/1ureka/1ureka.net.p2p/internal/util"
+	"github.com/1ureka/roj1/internal/protocol"
+	"github.com/1ureka/roj1/internal/util"
 )
 
 // Tuning constants.
@@ -54,7 +54,7 @@ func newSocket(parentCtx context.Context, id uint32, tr Transport) *Socket {
 		id:     id,
 		ctx:    ctx,
 		cancel: cancel,
-		inbox:  make(chan *protocol.Packet, 256), // pushLoop must never block, so 256 is enough
+		inbox:  make(chan *protocol.Packet, 1024), // pushLoop must never block, 1024 is for -race testing
 		tr:     tr,
 		seq:    NewSeqGen(),
 		reasm:  NewReassembler(),

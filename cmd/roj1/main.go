@@ -1,4 +1,4 @@
-// P2P TCP Tunnel — CLI entry point.
+// Roj1 — CLI entry point.
 //
 // This tool creates a P2P tunnel over WebRTC DataChannel, forwarding a remote
 // TCP service to a local port. No relay servers are needed after the signaling
@@ -17,10 +17,12 @@ import (
 
 	"github.com/pterm/pterm"
 
-	"github.com/1ureka/1ureka.net.p2p/internal/adapter"
-	"github.com/1ureka/1ureka.net.p2p/internal/signaling"
-	"github.com/1ureka/1ureka.net.p2p/internal/util"
+	"github.com/1ureka/roj1/internal/adapter"
+	"github.com/1ureka/roj1/internal/signaling"
+	"github.com/1ureka/roj1/internal/util"
 )
+
+var version = "dev"
 
 func main() {
 	// Root context — cancelled on Ctrl+C.
@@ -34,7 +36,7 @@ func main() {
 		util.EnableDebug()
 	}
 
-	pterm.Info.Println("Welcome to 1ureka.net.p2p CLI!")
+	pterm.Info.Println(fmt.Sprintf("Roj1 — v%s", version))
 	pterm.Println()
 
 	role, _ := pterm.DefaultInteractiveSelect.

@@ -12,8 +12,8 @@ import (
 	"github.com/pion/webrtc/v4"
 	"github.com/pterm/pterm"
 
-	"github.com/1ureka/1ureka.net.p2p/internal/transport"
-	"github.com/1ureka/1ureka.net.p2p/internal/util"
+	"github.com/1ureka/roj1/internal/transport"
+	"github.com/1ureka/roj1/internal/util"
 )
 
 // EstablishAsHost executes the full host-side signaling flow:
