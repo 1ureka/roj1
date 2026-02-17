@@ -1,7 +1,7 @@
 # 🏮 Roj1 (Roji)
 
 ![CI Status](https://github.com/1ureka/roj1/actions/workflows/ci.yml/badge.svg)
-<!-- ![Go Report Card](https://goreport.card.com/badge/github.com/1ureka/roj1) -->
+![Go Report Card](https://goreportcard.com/badge/github.com/1ureka/roj1)
 
 `Roj1` (pronounced as *Roji*, Japanese for "alleyway") is a lightweight tool that carves a private, **1-to-1** path between any two points on the internet. Share Minecraft servers, AI APIs, or local databases directly and securely—without port forwarding, static IPs, or middleman fees.
 
