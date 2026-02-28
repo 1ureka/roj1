@@ -73,12 +73,18 @@ func NewTransport(ctx context.Context) (*Transport, error) {
 		tCancel()
 	})
 
-	// Record PC state (informational only).
+	// Record PC state; auto-close on "failed" (pion/webrtc does not
+	// propagate failed → DC close like browsers do).
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		util.LogInfo("PeerConnection state changed → %s", state)
 		t.mu.Lock()
 		t.pcState = state
 		t.mu.Unlock()
+
+		if state == webrtc.PeerConnectionStateFailed {
+			util.LogWarning("PeerConnection entered failed state — closing transport")
+			tCancel()
+		}
 	})
 
 	// Start the sender goroutine.

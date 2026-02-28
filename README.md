@@ -1,7 +1,7 @@
 # 🏮 Roj1 (Roji)
 
 ![CI Status](https://github.com/1ureka/roj1/actions/workflows/ci.yml/badge.svg)
-![Go Report Card](https://goreportcard.com/badge/github.com/1ureka/roj1)
+[![Go Report Card](https://goreportcard.com/badge/github.com/1ureka/roj1)](https://goreportcard.com/report/github.com/1ureka/roj1)
 
 `Roj1` (pronounced as *Roji*, Japanese for "alleyway") is a lightweight tool that carves a private, **1-to-1** path between any two points on the internet. Share Minecraft servers, AI APIs, or local databases directly and securely—without port forwarding, static IPs, or middleman fees.
 
@@ -53,6 +53,35 @@ The **Host** needs [Visual Studio Code](https://code.visualstudio.com/) installe
 2. Paste the **URL** provided by the Host.
 3. Choose a local port to map the service to.
 4. Access the service at `127.0.0.1:<your_port>`.
+
+---
+
+## CLI Arguments
+
+For automation or LAN setups, **Roj1** can be launched entirely from the command line, bypassing the interactive prompts. If `-role` is omitted, the tool falls back to the default interactive mode.
+
+| Flag | Description | Applies To |
+| --- | --- | --- |
+| `-role` | `host` or `client` | Both |
+| `-port` | Target port (Host) or virtual service port (Client) | Both |
+| `-wsPort` | WebSocket signaling server port (default: random) | Host |
+| `-wsUrl` | WebSocket URL to connect to | Client |
+| `-wsListen` | Listen on all network interfaces (LAN-accessible) | Host |
+| `-debug` | Enable debug logging | Both |
+
+**Host example:**
+
+```sh
+roj1 -role host -port 25565 -wsPort 9000 -wsListen
+```
+
+**Client example:**
+
+```sh
+roj1 -role client -port 25565 -wsUrl ws://192.168.1.10:9000/ws
+```
+
+> **TIP:** When both machines are on the same local network, use `-wsListen` on the Host to make the WebSocket signaling server directly reachable via LAN IP. This eliminates the need for VS Code Port Forwarding entirely — the Client simply connects using `ws://<host-lan-ip>:<wsPort>/ws`.
 
 ---
 

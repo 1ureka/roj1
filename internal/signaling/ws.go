@@ -19,9 +19,10 @@ type server struct {
 	connCh   chan *websocket.Conn
 }
 
-// start begins listening on a random port. Returns the assigned port number.
-func (s *server) start() (int, error) {
-	listener, err := net.Listen("tcp", ":0")
+// start begins listening on the given address (e.g. ":0", "127.0.0.1:9000").
+// Returns the assigned port number.
+func (s *server) start(addr string) (int, error) {
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return 0, fmt.Errorf("failed to start WS server: %w", err)
 	}
