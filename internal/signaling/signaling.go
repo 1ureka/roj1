@@ -17,21 +17,21 @@ import (
 )
 
 // EstablishAsHost executes the full host-side signaling flow:
-//  1. Start a WS server on a random port
+//  1. Start a WS server on wsAddr (e.g. ":0" for random port)
 //  2. Wait for the client to connect
 //  3. Create a Transport
 //  4. Perform SDP/ICE exchange
 //  5. Wait for the DataChannel to be ready
 //  6. Close the WS server and connection (resource cleanup)
 //  7. Return the ready Transport
-func EstablishAsHost(ctx context.Context) (*transport.Transport, error) {
+func EstablishAsHost(ctx context.Context, wsAddr string) (*transport.Transport, error) {
 	// 1. Start WS server.
 	spinner, _ := pterm.DefaultSpinner.
 		WithRemoveWhenDone(true).
 		Start("starting WebSocket signaling server...")
 
 	srv := &server{connCh: make(chan *websocket.Conn, 1)}
-	wsPort, err := srv.start()
+	wsPort, err := srv.start(wsAddr)
 	if err != nil {
 		spinner.Fail("failed to start WebSocket server")
 		return nil, err
