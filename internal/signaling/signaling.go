@@ -89,6 +89,12 @@ func EstablishAsHost(ctx context.Context, wsAddr string) (*transport.Transport, 
 		return tr, nil
 
 	case err := <-errCh:
+		select {
+		case <-tr.Ready():
+			return tr, nil
+		default:
+		}
+
 		tr.Close()
 		spinner.Fail("failed to read signaling messages")
 		return nil, err
@@ -153,6 +159,12 @@ func EstablishAsClient(ctx context.Context, wsURL string) (*transport.Transport,
 		return tr, nil
 
 	case err := <-errCh:
+		select {
+		case <-tr.Ready():
+			return tr, nil
+		default:
+		}
+
 		tr.Close()
 		spinner.Fail("failed to read signaling messages")
 		return nil, err
