@@ -12,9 +12,10 @@ import (
 
 // receiver processes incoming signaling messages from the WebSocket (private).
 type receiver struct {
-	tr     *transport.Transport
-	conn   *websocket.Conn
-	sender *sender
+	tr        *transport.Transport
+	conn      *websocket.Conn
+	sender    *sender
+	peerReady chan struct{}
 }
 
 // watch reads signaling messages in a loop and applies them to the Transport.
@@ -53,6 +54,13 @@ func (r *receiver) watch() error {
 			}
 			if err := r.tr.AddICECandidate(init); err != nil {
 				return err
+			}
+
+		// Handle ready: peer's DataChannel is open.
+		case msgTypeReady:
+			select {
+			case r.peerReady <- struct{}{}:
+			default:
 			}
 		}
 	}

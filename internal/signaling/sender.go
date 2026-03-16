@@ -54,3 +54,8 @@ func (s *sender) sendAnswer() error {
 func (s *sender) sendCandidate(candidate string) error {
 	return s.send(message{Type: msgTypeCandidate, Candidate: candidate})
 }
+
+// sendReady sends a ready signal indicating the DataChannel is open.
+func (s *sender) sendReady() error {
+	return s.send(message{Type: msgTypeReady})
+}
