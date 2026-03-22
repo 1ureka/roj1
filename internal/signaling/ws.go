@@ -7,6 +7,8 @@ import (
 	"net/http"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/1ureka/roj1/internal/util"
 )
 
 var upgrader = websocket.Upgrader{
@@ -67,6 +69,8 @@ func (s *server) waitForClient(ctx context.Context) (*websocket.Conn, error) {
 
 // close shuts down the listener, preventing new connections.
 func (s *server) close() {
+	util.LogInfo("Closing WebSocket server...")
+
 	if s.listener != nil {
 		s.listener.Close()
 	}
