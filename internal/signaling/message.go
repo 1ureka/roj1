@@ -7,6 +7,7 @@ const (
 	msgTypeOffer     messageType = "offer"
 	msgTypeAnswer    messageType = "answer"
 	msgTypeCandidate messageType = "candidate"
+	msgTypeReady     messageType = "ready"
 )
 
 // message is the JSON structure exchanged over the WebSocket during signaling (private).
